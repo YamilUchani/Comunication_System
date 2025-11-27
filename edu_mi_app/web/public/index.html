@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Redirección STEMFORALL</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+      color: white;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      margin: 0;
+    }
+    .container {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 30px 40px;
+      border-radius: 15px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    .loader {
+      border: 4px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top: 4px solid white;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+    }
+    @keyframes spin { 
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    #tokenDisplay {
+      margin-top: 20px;
+      word-break: break-all;
+      font-size: 14px;
+      color: #ffd700;
+    }
+    #info {
+      margin-top: 15px;
+      font-size: 14px;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Procesando autenticación...</h1>
+    <div class="loader"></div>
+    <div id="tokenDisplay"></div>
+    <div id="info"></div>
+  </div>
+
+  <script>
+    function getAuthParam() {
+      const query = new URLSearchParams(window.location.search);
+      const hash  = new URLSearchParams(window.location.hash.substring(1));
+      return query.get('code') || query.get('access_token') || query.get('token') ||
+             hash.get('access_token') || hash.get('token') || hash.get('code');
+    }
+
+    function displayToken(authParam) {
+      const tokenDiv = document.getElementById("tokenDisplay");
+      const infoDiv = document.getElementById("info");
+
+      if (authParam) {
+        tokenDiv.textContent = `Autenticación exitosa. Código/Token recibido: ${authParam}`;
+        infoDiv.textContent = "✅ Copia este token y úsalo en tu app. La página se mantiene estable.";
+        
+        // Limpiar URL para evitar loops si recarga
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else {
+        tokenDiv.textContent = "No se detectó token ni código de autenticación.";
+        infoDiv.textContent = "⚠️ Por favor verifica tu proceso de autenticación.";
+      }
+    }
+
+    window.onload = () => {
+      const authParam = getAuthParam();
+      displayToken(authParam);
+
+      // Intento opcional de abrir la app una vez si hay token
+      if (authParam) {
+        const deepLink = `stemforall://auth-callback?auth=${encodeURIComponent(authParam)}`;
+        console.log("Intentando abrir app:", deepLink);
+
+        // Abrir deep link sin recargar ni fallback automático
+        setTimeout(() => {
+          window.location.href = deepLink;
+        }, 1000);
+      }
+    }
+  </script>
+</body>
+</html>
