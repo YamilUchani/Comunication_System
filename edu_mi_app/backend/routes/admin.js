@@ -4,29 +4,6 @@ const { authenticateUser, requireAdmin } = require('../middleware/auth');
 const supabase = require('../config/supabase');
 
 /**
- * GET /api/admin/users
- * Obtiene lista de usuarios con filtros
- */
-router.get('/users', authenticateUser, requireAdmin, async (req, res) => {
-    try {
-        console.log('📥 GET /api/admin/users - Fetching all users from profiles table');
-
-        // CONSULTA DIRECTA SIN FILTROS - Solo obtener TODOS los usuarios
-        const { data: users, error } = await supabase
-            .from('profiles')
-            .select('user_id, email, full_name, role, group_name, avatar_url, can_create_meetings, created_at')
-            .order('created_at', { ascending: false });
-
-        console.log('📊 Query result:', {
-            count: users?.length,
-            hasError: !!error,
-            errorMessage: error?.message
-        });
-
-        if (error) {
-            console.error('❌ Error obteniendo usuarios:', error);
-            return res.status(500).json({ error: { message: 'Error al obtener usuarios', details: error.message } });
-        }
 
         if (!users || users.length === 0) {
             console.warn('⚠️ No se encontraron usuarios en la tabla profiles');
