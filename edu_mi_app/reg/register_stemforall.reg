@@ -9,4 +9,4 @@ Windows Registry Editor Version 5.00
 [HKEY_CLASSES_ROOT\stemforall\shell\open]
 
 [HKEY_CLASSES_ROOT\stemforall\shell\open\command]
-@="\"D:\\Flutter_games\\flutter_prueba\\edu_mi_app\\build\\windows\\x64\\runner\\Debug\\edu_mi_app.exe\" \"%1\""
+@="\"G:\\Github\\Software de administracion\\Comunication_System\\edu_mi_app\\build\\windows\\x64\\runner\\Debug\\edu_mi_app.exe\" \"%1\""

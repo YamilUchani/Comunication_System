@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'chat_message.dart';
@@ -13,7 +12,8 @@ class ChatController {
   final String localUserName;
   final ValueNotifier<List<ChatMessage>> messages = ValueNotifier([]);
   final ValueNotifier<bool> hasUnreadMessages = ValueNotifier(false);
-  final StreamController<ChatMessage> _messageStream = StreamController.broadcast();
+  final StreamController<ChatMessage> _messageStream =
+      StreamController.broadcast();
   int _dataStreamId = 0;
   bool _isDataStreamInitialized = false;
   BuildContext? _context;
@@ -35,27 +35,26 @@ class ChatController {
   Future<void> _initializeChat() async {
     try {
       _dataStreamId = await _engine.createDataStream(
-        DataStreamConfig(
-          syncWithAudio: false,
-          ordered: true,
-        ),
+        DataStreamConfig(syncWithAudio: false, ordered: true),
       );
-      
+
       print('✅ Stream de chat creado con ID: $_dataStreamId');
       _isDataStreamInitialized = true;
-      
+
       _engine.registerEventHandler(
         RtcEngineEventHandler(
-          onStreamMessage: (connection, remoteUid, streamId, data, length, sentTs) {
-            if (streamId == _dataStreamId) {
-              _handleIncomingMessage(data, remoteUid);
-            }
-          },
-          onStreamMessageError: (connection, remoteUid, streamId, error, missed, cached) {
-            if (streamId == _dataStreamId) {
-              print('Error en mensaje de chat: $error');
-            }
-          },
+          onStreamMessage:
+              (connection, remoteUid, streamId, data, length, sentTs) {
+                if (streamId == _dataStreamId) {
+                  _handleIncomingMessage(data, remoteUid);
+                }
+              },
+          onStreamMessageError:
+              (connection, remoteUid, streamId, error, missed, cached) {
+                if (streamId == _dataStreamId) {
+                  print('Error en mensaje de chat: $error');
+                }
+              },
         ),
       );
     } catch (e) {
@@ -69,9 +68,8 @@ class ChatController {
       final messageStr = String.fromCharCodes(data);
       final messageJson = jsonDecode(messageStr);
       final message = ChatMessage.fromJson(messageJson);
-      
-      if (message.recipientId == null || 
-          message.recipientId == localUserId) {
+
+      if (message.recipientId == null || message.recipientId == localUserId) {
         messages.value = [...messages.value, message];
         _messageStream.add(message);
         hasUnreadMessages.value = true;
@@ -89,12 +87,13 @@ class ChatController {
     if (_context == null) return;
 
     String notificationText;
-    
+
     if (message.isReaction) {
-      notificationText = '${message.senderName} ${_getReactionText(message.reactionType)}';
+      notificationText =
+          '${message.senderName} ${_getReactionText(message.reactionType)}';
     } else {
       notificationText = '${message.senderName}: ${message.content}';
-      
+
       if (notificationText.length > 50) {
         notificationText = '${notificationText.substring(0, 47)}...';
       }
@@ -117,12 +116,18 @@ class ChatController {
 
   String _getReactionText(String? reactionType) {
     switch (reactionType) {
-      case 'like': return 'dio me gusta 👍';
-      case 'hand': return 'levantó la mano ✋';
-      case 'clap': return 'aplaudió 👏';
-      case 'heart': return 'envió un corazón ❤️';
-      case 'fire': return 'está en llamas 🔥';
-      default: return 'reaccionó';
+      case 'like':
+        return 'dio me gusta 👍';
+      case 'hand':
+        return 'levantó la mano ✋';
+      case 'clap':
+        return 'aplaudió 👏';
+      case 'heart':
+        return 'envió un corazón ❤️';
+      case 'fire':
+        return 'está en llamas 🔥';
+      default:
+        return 'reaccionó';
     }
   }
 
@@ -135,7 +140,9 @@ class ChatController {
   }) async {
     try {
       if (!_isDataStreamInitialized) {
-        throw Exception('Stream de chat no inicializado. Espera unos segundos.');
+        throw Exception(
+          'Stream de chat no inicializado. Espera unos segundos.',
+        );
       }
 
       final message = ChatMessage(
@@ -161,12 +168,11 @@ class ChatController {
 
       messages.value = [...messages.value, message];
       _messageStream.add(message);
-
     } catch (e) {
       if (kDebugMode) {
         print('Error enviando mensaje: $e');
       }
-      
+
       final errorMessage = ChatMessage(
         messageId: 'error-${DateTime.now().millisecondsSinceEpoch}',
         senderId: 'system',
@@ -175,14 +181,18 @@ class ChatController {
         timestamp: DateTime.now(),
         type: MessageType.system,
       );
-      
+
       messages.value = [...messages.value, errorMessage];
       _messageStream.add(errorMessage);
       rethrow;
     }
   }
 
-  Future<void> sendTextMessage(String text, {String? recipientId, String? recipientName}) {
+  Future<void> sendTextMessage(
+    String text, {
+    String? recipientId,
+    String? recipientName,
+  }) {
     return sendMessage(
       content: text,
       type: MessageType.text,
@@ -208,11 +218,14 @@ class ChatController {
     if (userId == null) {
       return messages.value.where((msg) => msg.recipientId == null).toList();
     }
-    return messages.value.where((msg) =>
-      msg.recipientId == null ||
-      msg.recipientId == userId ||
-      msg.senderId == userId
-    ).toList();
+    return messages.value
+        .where(
+          (msg) =>
+              msg.recipientId == null ||
+              msg.recipientId == userId ||
+              msg.senderId == userId,
+        )
+        .toList();
   }
 
   Stream<ChatMessage> get messageStream => _messageStream.stream;

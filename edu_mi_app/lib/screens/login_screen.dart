@@ -39,18 +39,20 @@ class _LoginScreenState extends State<LoginScreen> {
       if (e.message.contains('Email not confirmed') && mounted) {
         setState(() => _showResendButton = true);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Por favor, verifica tu email primero.')),
+          const SnackBar(
+            content: Text('Por favor, verifica tu email primero.'),
+          ),
         );
       } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.message}')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: ${e.message}')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error inesperado: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error inesperado: $e')));
       }
     }
   }
@@ -68,9 +70,9 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al reenviar: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al reenviar: $e')));
       }
     }
   }
@@ -94,9 +96,9 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isWaitingForOAuth = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}')));
       }
     }
   }
@@ -123,15 +125,19 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _signIn,
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                ),
                 child: const Text('Iniciar sesión'),
-                style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
               ),
               if (_showResendButton) ...[
                 const SizedBox(height: 10),
                 ElevatedButton(
                   onPressed: _resendVerification,
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                  ),
                   child: const Text('Reenviar correo de verificación'),
-                  style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
                 ),
               ],
               const SizedBox(height: 10),
@@ -141,14 +147,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     .then((_) {
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Enlace de recuperación enviado.')),
+                          const SnackBar(
+                            content: Text('Enlace de recuperación enviado.'),
+                          ),
                         );
                       }
-                    }).catchError((e) {
+                    })
+                    .catchError((e) {
                       if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Error: $e')),
-                        );
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text('Error: $e')));
                       }
                     }),
                 child: const Text('¿Olvidaste tu contraseña?'),
@@ -162,7 +171,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 icon: const Icon(Icons.login),
                 label: const Text('Continuar con Google'),
                 onPressed: _isWaitingForOAuth ? null : _signInWithGoogle,
-                style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                ),
               ),
               if (_isWaitingForOAuth) ...[
                 const SizedBox(height: 20),

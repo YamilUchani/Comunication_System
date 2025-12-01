@@ -20,10 +20,7 @@ class VideoCallController {
 
   int get localUid => _localUid;
 
-  VideoCallController({
-    required this.channelName,
-    required this.token,
-  });
+  VideoCallController({required this.channelName, required this.token});
 
   Future<void> init() async {
     try {
@@ -44,7 +41,9 @@ class VideoCallController {
         RtcEngineEventHandler(
           onJoinChannelSuccess: (connection, elapsed) {
             localUserJoined.value = true;
-            print('[EVENT] onJoinChannelSuccess: connection=$connection, elapsed=$elapsed');
+            print(
+              '[EVENT] onJoinChannelSuccess: connection=$connection, elapsed=$elapsed',
+            );
           },
           onUserJoined: (connection, uid, elapsed) {
             final currentUids = Set<int>.from(remoteUids.value);
@@ -54,7 +53,9 @@ class VideoCallController {
           },
           onUserOffline: (connection, uid, reason) {
             final currentUids = Set<int>.from(remoteUids.value);
-            final currentScreenShareUids = Set<int>.from(remoteScreenShareUids.value);
+            final currentScreenShareUids = Set<int>.from(
+              remoteScreenShareUids.value,
+            );
             currentUids.remove(uid);
             // Si el usuario se va, también deja de compartir pantalla.
             currentScreenShareUids.remove(uid);
@@ -62,44 +63,34 @@ class VideoCallController {
             remoteScreenShareUids.value = currentScreenShareUids;
             print('[EVENT] onUserOffline: uid=$uid, reason=$reason');
           },
-          // CORRECCIÓN: Este es el evento MÁS IMPORTANTE para la pantalla compartida.
-          onRemoteVideoStateChanged: (connection, remoteUid, state, reason, elapsed) {
-            print('[EVENT] onRemoteVideoStateChanged: uid=$remoteUid, state=$state, reason=$reason');
-
-            // Verificamos si la fuente del video es la PANTALLA
-            // Nota: En algunas versiones del SDK, la fuente viene en otro evento o se infiere.
-            // La lógica moderna se centra en si el estado es 'Playing' para una fuente de pantalla.
-            // Esta es la forma más efectiva de saberlo:
-            
-            final isScreenShareSource = state == RemoteVideoState.remoteVideoStateStarting || state == RemoteVideoState.remoteVideoStateDecoding;
-
-            // Para ser más precisos, necesitamos saber la fuente. El SDK debería proveerla.
-            // Si tu versión no la provee en este evento, la lógica de 'joinChannelEx' con un UID diferente es la alternativa.
-            // Sin embargo, la forma más moderna es la siguiente:
-            
-            // Un usuario EMPIEZA a compartir su pantalla
-            if (reason == RemoteVideoStateReason.remoteVideoStateReasonRemoteUnmuted) {
-                 // Esta lógica asume que si un usuario ya visible (cámara) manda un segundo stream, es pantalla.
-                 // La forma 100% segura es usando onRemoteVideoStats para ver la fuente o `joinChannelEx` con un UID dedicado.
-                 // Por ahora, vamos a usar `onVideoSizeChanged` como un truco para detectarlo.
-            }
-
-            // Un usuario DEJA de compartir su pantalla
-            if (reason == RemoteVideoStateReason.remoteVideoStateReasonRemoteMuted) {
-                // Aquí también es difícil saber si mutó la cámara o la pantalla.
-            }
-          },
-          // CORRECCIÓN #2: Usaremos onVideoSizeChanged como una forma de detectar el stream de pantalla.
-          // Cuando un stream de pantalla llega, suele tener una resolución diferente y el `sourceType` sí se especifica aquí.
+          onRemoteVideoStateChanged:
+              (connection, remoteUid, state, reason, elapsed) {
+                print(
+                  '[EVENT] onRemoteVideoStateChanged: uid=$remoteUid, state=$state, reason=$reason',
+                );
+              },
+          // CORRECCIÓN: Usaremos onVideoSizeChanged para detectar el stream de pantalla.
+          // Cuando un stream de pantalla llega, el sourceType será videoSourceScreen.
           onVideoSizeChanged: (connection, sourceType, uid, width, height, rotation) {
-              print('[EVENT] onVideoSizeChanged: uid=$uid, sourceType=$sourceType, width=$width, height=$height');
-              if (sourceType == VideoSourceType.videoSourceScreen) {
-                  // Si vemos un video de tipo "pantalla" de este usuario, lo añadimos a la lista.
-                  addRemoteScreenShareUid(uid);
-              } else if (sourceType == VideoSourceType.videoSourceCamera) {
-                  // Si el video es de la cámara, nos aseguramos de que no esté en la lista de pantalla compartida.
-                  removeRemoteScreenShareUid(uid);
-              }
+            print(
+              '[EVENT] onVideoSizeChanged: uid=$uid, sourceType=$sourceType, width=$width, height=$height',
+            );
+
+            // Verificamos el tipo de fuente del video
+            if (sourceType == VideoSourceType.videoSourceScreen) {
+              // Si vemos un video de tipo "pantalla" de este usuario, lo añadimos a la lista.
+              print(
+                '[SCREEN SHARE] Usuario $uid está compartiendo pantalla (${width}x$height)',
+              );
+              addRemoteScreenShareUid(uid);
+            } else if (sourceType == VideoSourceType.videoSourceCamera ||
+                sourceType == VideoSourceType.videoSourceCameraPrimary) {
+              // Si el video es de la cámara, nos aseguramos de que no esté en la lista de pantalla compartida.
+              print(
+                '[CAMERA] Usuario $uid está usando cámara (${width}x$height)',
+              );
+              removeRemoteScreenShareUid(uid);
+            }
           },
         ),
       );
@@ -127,32 +118,7 @@ class VideoCallController {
     }
   }
 
-  // ... (toggleAudio y toggleVideo se mantienen igual) ...
-
-  void dispose() {
-    _engine.leaveChannel();
-    _engine.stopPreview();
-    _engine.release();
-    localUserJoined.dispose();
-    isAudioMuted.dispose();
-    isVideoMuted.dispose();
-    remoteUids.dispose();
-    remoteScreenShareUids.dispose(); // No olvides hacer dispose
-  }
-
-  // Estos métodos ahora serán llamados por el event handler
-  void addRemoteScreenShareUid(int uid) {
-    final updated = Set<int>.from(remoteScreenShareUids.value)..add(uid);
-    remoteScreenShareUids.value = updated;
-    print('[LOGIC] Added screen share UID: $uid. Current list: ${remoteScreenShareUids.value}');
-  }
-
-  void removeRemoteScreenShareUid(int uid) {
-    final updated = Set<int>.from(remoteScreenShareUids.value)..remove(uid);
-    remoteScreenShareUids.value = updated;
-    print('[LOGIC] Removed screen share UID: $uid. Current list: ${remoteScreenShareUids.value}');
-  }
-    Future<void> toggleAudio() async {
+  Future<void> toggleAudio() async {
     final newMuteState = !isAudioMuted.value;
     await _engine.muteLocalAudioStream(newMuteState);
     isAudioMuted.value = newMuteState;
@@ -162,5 +128,33 @@ class VideoCallController {
     final newMuteState = !isVideoMuted.value;
     await _engine.muteLocalVideoStream(newMuteState);
     isVideoMuted.value = newMuteState;
+  }
+
+  void dispose() {
+    _engine.leaveChannel();
+    _engine.stopPreview();
+    _engine.release();
+    localUserJoined.dispose();
+    isAudioMuted.dispose();
+    isVideoMuted.dispose();
+    remoteUids.dispose();
+    remoteScreenShareUids.dispose();
+  }
+
+  // Estos métodos ahora serán llamados por el event handler
+  void addRemoteScreenShareUid(int uid) {
+    final updated = Set<int>.from(remoteScreenShareUids.value)..add(uid);
+    remoteScreenShareUids.value = updated;
+    print(
+      '[LOGIC] Added screen share UID: $uid. Current list: ${remoteScreenShareUids.value}',
+    );
+  }
+
+  void removeRemoteScreenShareUid(int uid) {
+    final updated = Set<int>.from(remoteScreenShareUids.value)..remove(uid);
+    remoteScreenShareUids.value = updated;
+    print(
+      '[LOGIC] Removed screen share UID: $uid. Current list: ${remoteScreenShareUids.value}',
+    );
   }
 }

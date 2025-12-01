@@ -12,7 +12,7 @@ class ControlsBar extends StatelessWidget {
   final ScreenShareController screenController;
   final ChatController chatController;
   final Map<String, String> users;
-  final DeviceManager deviceManager;
+  final DeviceManager? deviceManager; // Ahora es nullable
 
   const ControlsBar({
     super.key,
@@ -96,13 +96,26 @@ class ControlsBar extends StatelessWidget {
               PopupMenuButton<String>(
                 icon: const Icon(Icons.settings, color: Colors.white, size: 30),
                 itemBuilder: (context) {
+                  // Si deviceManager no está disponible, mostrar mensaje
+                  if (deviceManager == null) {
+                    return [
+                      const PopupMenuItem<String>(
+                        enabled: false,
+                        child: Text('Dispositivos no disponibles'),
+                      ),
+                    ];
+                  }
+
                   return [
                     // Submenú para cámaras
                     const PopupMenuItem<String>(
                       enabled: false,
-                      child: Text('Cámaras', style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: Text(
+                        'Cámaras',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
                     ),
-                    ...deviceManager.cameras.map((camera) {
+                    ...deviceManager!.cameras.map((camera) {
                       return PopupMenuItem<String>(
                         value: 'camera_${camera.deviceId}',
                         child: ListTile(
@@ -111,67 +124,77 @@ class ControlsBar extends StatelessWidget {
                           onTap: () {
                             Navigator.pop(context);
                             if (camera.deviceId != null) {
-                              deviceManager.changeCamera(
-                                controller.engine.getVideoDeviceManager(), 
-                                camera.deviceId!
+                              deviceManager!.changeCamera(
+                                controller.engine.getVideoDeviceManager(),
+                                camera.deviceId!,
                               );
                             }
                           },
                         ),
                       );
-                    }).toList(),
-                    
+                    }),
+
                     const PopupMenuDivider(),
-                    
+
                     // Submenú para micrófonos
                     const PopupMenuItem<String>(
                       enabled: false,
-                      child: Text('Micrófonos', style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: Text(
+                        'Micrófonos',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
                     ),
-                    ...deviceManager.microphones.map((microphone) {
+                    ...deviceManager!.microphones.map((microphone) {
                       return PopupMenuItem<String>(
                         value: 'microphone_${microphone.deviceId}',
                         child: ListTile(
                           leading: const Icon(Icons.mic),
-                          title: Text(microphone.deviceName ?? 'Micrófono sin nombre'),
+                          title: Text(
+                            microphone.deviceName ?? 'Micrófono sin nombre',
+                          ),
                           onTap: () {
                             Navigator.pop(context);
                             if (microphone.deviceId != null) {
-                              deviceManager.changeMicrophone(
-                                controller.engine.getAudioDeviceManager(), 
-                                microphone.deviceId!
+                              deviceManager!.changeMicrophone(
+                                controller.engine.getAudioDeviceManager(),
+                                microphone.deviceId!,
                               );
                             }
                           },
                         ),
                       );
-                    }).toList(),
-                    
+                    }),
+
                     const PopupMenuDivider(),
-                    
+
                     // Submenú para altavoces
                     const PopupMenuItem<String>(
                       enabled: false,
-                      child: Text('Altavoces', style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: Text(
+                        'Altavoces',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
                     ),
-                    ...deviceManager.speakers.map((speaker) {
+                    ...deviceManager!.speakers.map((speaker) {
                       return PopupMenuItem<String>(
                         value: 'speaker_${speaker.deviceId}',
                         child: ListTile(
                           leading: const Icon(Icons.speaker),
-                          title: Text(speaker.deviceName ?? 'Altavoz sin nombre'),
+                          title: Text(
+                            speaker.deviceName ?? 'Altavoz sin nombre',
+                          ),
                           onTap: () {
                             Navigator.pop(context);
                             if (speaker.deviceId != null) {
-                              deviceManager.changeSpeaker(
-                                controller.engine.getAudioDeviceManager(), 
-                                speaker.deviceId!
+                              deviceManager!.changeSpeaker(
+                                controller.engine.getAudioDeviceManager(),
+                                speaker.deviceId!,
                               );
                             }
                           },
                         ),
                       );
-                    }).toList(),
+                    }),
                   ];
                 },
                 onSelected: (value) {
@@ -181,7 +204,11 @@ class ControlsBar extends StatelessWidget {
 
               // Menú de reacciones
               PopupMenuButton<String>(
-                icon: const Icon(Icons.emoji_emotions, color: Colors.white, size: 30),
+                icon: const Icon(
+                  Icons.emoji_emotions,
+                  color: Colors.white,
+                  size: 30,
+                ),
                 itemBuilder: (context) => [
                   const PopupMenuItem(
                     value: 'like',
@@ -214,7 +241,10 @@ class ControlsBar extends StatelessWidget {
                   const PopupMenuItem(
                     value: 'fire',
                     child: ListTile(
-                      leading: Icon(Icons.local_fire_department, color: Colors.orange),
+                      leading: Icon(
+                        Icons.local_fire_department,
+                        color: Colors.orange,
+                      ),
                       title: Text('Fuego'),
                     ),
                   ),
@@ -281,11 +311,7 @@ class ControlsBar extends StatelessWidget {
 
               // Botón de colgar
               IconButton(
-                icon: const Icon(
-                  Icons.call_end,
-                  color: Colors.red,
-                  size: 30,
-                ),
+                icon: const Icon(Icons.call_end, color: Colors.red, size: 30),
                 onPressed: () => Navigator.pop(context),
               ),
             ],

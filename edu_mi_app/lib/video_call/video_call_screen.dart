@@ -29,7 +29,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   late final VideoCallController controller;
   ScreenShareController? screenController;
   late ChatController chatController;
-  late DeviceManager deviceManager; 
+  DeviceManager? deviceManager; // Ahora es nullable
   final Map<String, String> users = {};
   int? localUid;
 
@@ -57,10 +57,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             localUserName: widget.userName,
           );
           users[localUid.toString()] = widget.userName;
-          
+
           // Inicializa el DeviceManager después de que el motor de Agora esté listo
           deviceManager = DeviceManager();
-          deviceManager.refreshDevices(
+          deviceManager?.refreshDevices(
             controller.engine.getAudioDeviceManager(),
             controller.engine.getVideoDeviceManager(),
           );
@@ -90,10 +90,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               users[uid.toString()] = 'Usuario $uid';
             }
           }
-          final currentUids =
-              controller.remoteUids.value.map((uid) => uid.toString()).toList();
-          users.removeWhere((key, value) =>
-              key != localUid.toString() && !currentUids.contains(key));
+          final currentUids = controller.remoteUids.value
+              .map((uid) => uid.toString())
+              .toList();
+          users.removeWhere(
+            (key, value) =>
+                key != localUid.toString() && !currentUids.contains(key),
+          );
         });
       }
     });
@@ -102,7 +105,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   @override
   Widget build(BuildContext context) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && chatController != null) {
+      if (mounted) {
         chatController.setContext(context);
       }
     });

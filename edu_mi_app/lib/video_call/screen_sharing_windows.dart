@@ -6,8 +6,8 @@ import 'package:agora_rtc_engine/src/agora_base.dart';
 class CaptureSource {
   final int id;
   final String name;
-  final Rectangle region;      // Área completa a capturar
-  final Uint8List? thumbData;  // Miniatura opcional
+  final Rectangle region; // Área completa a capturar
+  final Uint8List? thumbData; // Miniatura opcional
   final bool isDisplay;
 
   CaptureSource({
@@ -28,8 +28,8 @@ class ScreenShareController extends ChangeNotifier {
   final ValueNotifier<bool> isSharingNotifier = ValueNotifier(false);
   bool get isSharing => isSharingNotifier.value;
 
-  List<CaptureSource> _availableDisplays = [];
-  List<CaptureSource> _availableWindows = [];
+  final List<CaptureSource> _availableDisplays = [];
+  final List<CaptureSource> _availableWindows = [];
 
   List<CaptureSource> get availableDisplays => _availableDisplays;
   List<CaptureSource> get availableWindows => _availableWindows;
@@ -51,14 +51,15 @@ class ScreenShareController extends ChangeNotifier {
       for (final source in sources) {
         if (source.sourceId == null) continue;
 
-       final region = Rectangle(
+        final region = Rectangle(
           x: source.position?.x ?? 0,
           y: source.position?.y ?? 0,
           width: source.position?.width ?? 0,
           height: source.position?.height ?? 0,
         );
 
-        if (source.type == ScreenCaptureSourceType.screencapturesourcetypeScreen) {
+        if (source.type ==
+            ScreenCaptureSourceType.screencapturesourcetypeScreen) {
           _availableDisplays.add(
             CaptureSource(
               id: source.sourceId!,
@@ -68,7 +69,8 @@ class ScreenShareController extends ChangeNotifier {
               isDisplay: true,
             ),
           );
-        } else if (source.type == ScreenCaptureSourceType.screencapturesourcetypeWindow) {
+        } else if (source.type ==
+            ScreenCaptureSourceType.screencapturesourcetypeWindow) {
           _availableWindows.add(
             CaptureSource(
               id: source.sourceId!,
@@ -133,10 +135,10 @@ class ScreenShareController extends ChangeNotifier {
       if (!_isInitialized) await initialize();
 
       final captureParams = const ScreenCaptureParameters(
-        frameRate: 15, 
+        frameRate: 15,
         bitrate: 1200,
         // Evita capturar el cursor del ratón si no lo deseas
-        captureMouseCursor: true, 
+        captureMouseCursor: true,
       );
       if (source.isDisplay) {
         await _engine.startScreenCaptureByDisplayId(
@@ -144,20 +146,25 @@ class ScreenShareController extends ChangeNotifier {
           regionRect: source.region,
           captureParams: captureParams,
         );
-        print('[LOCAL] startScreenCaptureByDisplayId llamado. ¡El usuario local está compartiendo pantalla!');
-
+        print(
+          '[LOCAL] startScreenCaptureByDisplayId llamado. ¡El usuario local está compartiendo pantalla!',
+        );
       } else {
         await _engine.startScreenCaptureByWindowId(
           windowId: source.id,
           regionRect: source.region,
           captureParams: captureParams,
         );
-        print('[LOCAL] startScreenCaptureByWindowId llamado. ¡El usuario local está compartiendo pantalla!');
+        print(
+          '[LOCAL] startScreenCaptureByWindowId llamado. ¡El usuario local está compartiendo pantalla!',
+        );
       }
-      await _engine.updateChannelMediaOptions(const ChannelMediaOptions(
-        publishCameraTrack: false, // Apagamos la cámara
-        publishScreenTrack: true,  // Encendemos la pantalla
-      ));
+      await _engine.updateChannelMediaOptions(
+        const ChannelMediaOptions(
+          publishCameraTrack: false, // Apagamos la cámara
+          publishScreenTrack: true, // Encendemos la pantalla
+        ),
+      );
       isSharingNotifier.value = true;
       notifyListeners();
     } catch (e) {
@@ -174,11 +181,13 @@ class ScreenShareController extends ChangeNotifier {
 
       // CORRECCIÓN: Revertimos los cambios.
       // Dejamos de publicar la pantalla y volvemos a encender la cámara.
-      await _engine.updateChannelMediaOptions(const ChannelMediaOptions(
-        publishScreenTrack: false, // Apagamos la pantalla
-        publishCameraTrack: true,  // Volvemos a la cámara
-      ));
-      
+      await _engine.updateChannelMediaOptions(
+        const ChannelMediaOptions(
+          publishScreenTrack: false, // Apagamos la pantalla
+          publishCameraTrack: true, // Volvemos a la cámara
+        ),
+      );
+
       print('[LOCAL] Dejó de compartir pantalla y volvió a la cámara.');
       isSharingNotifier.value = false;
       notifyListeners();

@@ -21,16 +21,14 @@ class UserSelectionDialog extends StatelessWidget {
             onTap: () => Navigator.pop(context, {'id': null, 'name': 'Todos'}),
           ),
           const Divider(),
-          ...users.entries.map((user) => ListTile(
-            leading: CircleAvatar(
-              child: Text(user.value[0].toUpperCase()),
+          ...users.entries.map(
+            (user) => ListTile(
+              leading: CircleAvatar(child: Text(user.value[0].toUpperCase())),
+              title: Text(user.value),
+              onTap: () =>
+                  Navigator.pop(context, {'id': user.key, 'name': user.value}),
             ),
-            title: Text(user.value),
-            onTap: () => Navigator.pop(context, {
-              'id': user.key, 
-              'name': user.value
-            }),
-          )).toList(),
+          ),
         ],
       ),
     );
