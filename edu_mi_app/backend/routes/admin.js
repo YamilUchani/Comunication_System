@@ -103,6 +103,67 @@ router.get('/groups', authenticateUser, requireAdmin, async (req, res) => {
 });
 
 /**
+ * GET /api/admin/groups/with-members
+ * Obtiene grupos con sus integrantes
+ */
+router.get('/groups/with-members', authenticateUser, requireAdmin, async (req, res) => {
+    try {
+        console.log('📥 GET /api/admin/groups/with-members');
+
+        // 1. Obtener todos los grupos activos
+        const { data: groups, error: groupsError } = await supabase
+            .from('groups')
+            .select('*')
+            .eq('is_active', true)
+            .order('created_at', { ascending: true });
+
+        if (groupsError) {
+            console.error('❌ Error obteniendo grupos:', groupsError);
+            return res.status(500).json({ error: { message: 'Error al obtener grupos' } });
+        }
+
+        // 2. Por cada grupo, obtener sus miembros
+        const groupsWithMembers = [];
+        for (const group of groups) {
+            const { data: members, error: membersError } = await supabase
+                .from('profiles')
+                .select('user_id, full_name, role, avatar_url')
+                .eq('group_name', group.name)
+                .order('full_name', { ascending: true });
+
+            if (!membersError) {
+                groupsWithMembers.push({
+                    ...group,
+                    members: members || []
+                });
+            }
+        }
+
+        // 3. Obtener usuarios sin grupo (solo students y teachers)
+        const { data: unassigned, error: unassignedError } = await supabase
+            .from('profiles')
+            .select('user_id, full_name, role, avatar_url')
+            .is('group_name', null)
+            .in('role', ['student', 'teacher'])
+            .order('full_name', { ascending: true });
+
+        if (unassignedError) {
+            console.error('❌ Error obteniendo no asignados:', unassignedError);
+        }
+
+        console.log(`✅ ${groupsWithMembers.length} grupos, ${unassigned?.length || 0} sin asignar`);
+
+        res.json({
+            groups: groupsWithMembers,
+            unassigned: unassigned || []
+        });
+    } catch (error) {
+        console.error('💥 Error en /admin/groups/with-members:', error);
+        res.status(500).json({ error: { message: 'Error interno' } });
+    }
+});
+
+/**
  * POST /api/admin/groups
  * Crea un nuevo grupo
  */
