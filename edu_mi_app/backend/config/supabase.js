@@ -1,14 +1,14 @@
 const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('Las variables SUPABASE_URL y SUPABASE_SERVICE_KEY son requeridas');
+if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Las variables SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY son requeridas');
 }
 
-// Cliente de Supabase con service key (acceso completo)
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+// Cliente de Supabase con service role key (acceso completo, bypasea RLS)
+const supabase = createClient(supabaseUrl, supabaseKey, {
     auth: {
         autoRefreshToken: false,
         persistSession: false

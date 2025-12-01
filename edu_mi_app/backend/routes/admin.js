@@ -15,19 +15,23 @@ router.get('/users', authenticateUser, requireAdmin, async (req, res) => {
             .from('profiles')
             .select('user_id, email, full_name, role, group_name, avatar_url, can_create_meetings, created_at');
 
-        if (role) {
+        if (role && role !== 'null' && role !== '') {
             query = query.eq('role', role);
         }
 
-        if (group_name) {
+        if (group_name && group_name !== 'null' && group_name !== '') {
             query = query.eq('group_name', group_name);
         }
 
-        if (search) {
+        if (search && search !== 'null' && search !== '') {
+            // Búsqueda simple por nombre o email
             query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`);
         }
 
+        // Ordenar por fecha de creación descendente
         const { data: users, error } = await query.order('created_at', { ascending: false });
+
+        console.log('🔍 /api/admin/users - Query result:', { count: users?.length, error });
 
         if (error) {
             console.error('Error obteniendo usuarios:', error);

@@ -10,7 +10,7 @@ const supabase = require('../config/supabase');
  */
 router.post('/create', authenticateUser, canCreateMeeting, async (req, res) => {
     try {
-        const { channelName, title, description } = req.body;
+        const { channelName, title, description, allowed_groups, allowed_users } = req.body;
         const userId = req.user.id;
 
         // Validar nombre del canal
@@ -51,6 +51,8 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res) => {
                 description: description || '',
                 creator_id: userId,
                 is_active: true,
+                allowed_groups: allowed_groups || [],
+                allowed_users: allowed_users || [],
                 created_at: new Date().toISOString(),
                 expires_at: new Date(Date.now() + expirationTime * 1000).toISOString()
             })
