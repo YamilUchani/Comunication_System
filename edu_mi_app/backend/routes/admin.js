@@ -9,39 +9,35 @@ const supabase = require('../config/supabase');
  */
 router.get('/users', authenticateUser, requireAdmin, async (req, res) => {
     try {
-        const { role, group_name, search } = req.query;
+        console.log('📥 GET /api/admin/users - Fetching all users from profiles table');
 
-        let query = supabase
+        // CONSULTA DIRECTA SIN FILTROS - Solo obtener TODOS los usuarios
+        const { data: users, error } = await supabase
             .from('profiles')
-            .select('user_id, email, full_name, role, group_name, avatar_url, can_create_meetings, created_at');
+            .select('user_id, email, full_name, role, group_name, avatar_url, can_create_meetings, created_at')
+            .order('created_at', { ascending: false });
 
-        if (role && role !== 'null' && role !== '') {
-            query = query.eq('role', role);
-        }
-
-        if (group_name && group_name !== 'null' && group_name !== '') {
-            query = query.eq('group_name', group_name);
-        }
-
-        if (search && search !== 'null' && search !== '') {
-            // Búsqueda simple por nombre o email
-            query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`);
-        }
-
-        // Ordenar por fecha de creación descendente
-        const { data: users, error } = await query.order('created_at', { ascending: false });
-
-        console.log('🔍 /api/admin/users - Query result:', { count: users?.length, error });
+        console.log('📊 Query result:', {
+            count: users?.length,
+            hasError: !!error,
+            errorMessage: error?.message
+        });
 
         if (error) {
-            console.error('Error obteniendo usuarios:', error);
-            return res.status(500).json({ error: { message: 'Error al obtener usuarios' } });
+            console.error('❌ Error obteniendo usuarios:', error);
+            return res.status(500).json({ error: { message: 'Error al obtener usuarios', details: error.message } });
         }
 
-        res.json({ users });
+        if (!users || users.length === 0) {
+            console.warn('⚠️ No se encontraron usuarios en la tabla profiles');
+        } else {
+            console.log(`✅ ${users.length} usuarios encontrados`);
+        }
+
+        res.json({ users: users || [] });
     } catch (error) {
-        console.error('Error en /admin/users:', error);
-        res.status(500).json({ error: { message: 'Error interno' } });
+        console.error('💥 Error en /admin/users:', error);
+        res.status(500).json({ error: { message: 'Error interno', details: error.message } });
     }
 });
 
