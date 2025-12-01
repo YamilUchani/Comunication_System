@@ -47,7 +47,7 @@ app.use(express.json());
 app.use('/api/meetings', meetingsRoutes);
 
 // Ruta de salud
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {
     res.json({
         status: 'OK',
         timestamp: new Date().toISOString(),
