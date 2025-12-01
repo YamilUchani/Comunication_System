@@ -4,6 +4,29 @@ const { authenticateUser, requireAdmin } = require('../middleware/auth');
 const supabase = require('../config/supabase');
 
 /**
+ * GET /api/admin/users
+ * Obtiene lista de usuarios
+ */
+router.get('/users', authenticateUser, requireAdmin, async (req, res) => {
+    try {
+        console.log('📥 GET /api/admin/users - Fetching all users from profiles table');
+
+        // Consultar con las columnas que REALMENTE existen en profiles
+        const { data: users, error } = await supabase
+            .from('profiles')
+            .select('user_id, id, full_name, age, group_name, role, avatar_url, can_create_meetings, created_at, is_verified')
+            .order('created_at', { ascending: false });
+
+        console.log('📊 Query result:', {
+            count: users?.length,
+            hasError: !!error,
+            errorMessage: error?.message
+        });
+
+        if (error) {
+            console.error('❌ Error obteniendo usuarios:', error);
+            return res.status(500).json({ error: { message: 'Error al obtener usuarios', details: error.message } });
+        }
 
         if (!users || users.length === 0) {
             console.warn('⚠️ No se encontraron usuarios en la tabla profiles');
@@ -22,6 +45,42 @@ const supabase = require('../config/supabase');
  * PUT /api/admin/users/:userId/role
  * Asigna rol y grupo a un usuario
  */
+router.put('/users/:userId/role', authenticateUser, requireAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { role, group_name } = req.body;
+
+        if (!role || !['student', 'teacher', 'administrator'].includes(role)) {
+            return res.status(400).json({
+                error: { message: 'Rol inválido. Debe ser: student, teacher o administrator' }
+            });
+        }
+
+        const { data, error } = await supabase
+            .from('profiles')
+            .update({ role, group_name })
+            .eq('user_id', userId)
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Error actualizando rol:', error);
+            return res.status(500).json({ error: { message: 'Error al actualizar rol' } });
+        }
+
+        res.json({
+            message: 'Rol actualizado exitosamente',
+            user: data
+        });
+    } catch (error) {
+        console.error('Error en /admin/users/role:', error);
+        res.status(500).json({ error: { message: 'Error interno' } });
+    }
+});
+
+/**
+ * GET /api/admin/groups
+ * Obtiene lista de grupos
  */
 router.get('/groups', authenticateUser, requireAdmin, async (req, res) => {
     try {
