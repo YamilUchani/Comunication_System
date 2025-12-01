@@ -22,42 +22,6 @@ const supabase = require('../config/supabase');
  * PUT /api/admin/users/:userId/role
  * Asigna rol y grupo a un usuario
  */
-router.put('/users/:userId/role', authenticateUser, requireAdmin, async (req, res) => {
-    try {
-        const { userId } = req.params;
-        const { role, group_name } = req.body;
-
-        if (!role || !['student', 'teacher', 'administrator'].includes(role)) {
-            return res.status(400).json({
-                error: { message: 'Rol inválido. Debe ser: student, teacher o administrator' }
-            });
-        }
-
-        const { data, error } = await supabase
-            .from('profiles')
-            .update({ role, group_name })
-            .eq('user_id', userId)
-            .select()
-            .single();
-
-        if (error) {
-            console.error('Error actualizando rol:', error);
-            return res.status(500).json({ error: { message: 'Error al actualizar rol' } });
-        }
-
-        res.json({
-            message: 'Rol actualizado exitosamente',
-            user: data
-        });
-    } catch (error) {
-        console.error('Error en /admin/users/role:', error);
-        res.status(500).json({ error: { message: 'Error interno' } });
-    }
-});
-
-/**
- * GET /api/admin/groups
- * Obtiene lista de grupos
  */
 router.get('/groups', authenticateUser, requireAdmin, async (req, res) => {
     try {
