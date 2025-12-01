@@ -319,6 +319,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
               if (confirmController.text == groupName) {
                 Navigator.pop(context);
                 try {
+                  setState(() => _isLoading = true);
                   await ApiService.deleteGroup(
                     groupName,
                     confirmController.text,
@@ -329,6 +330,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       const SnackBar(content: Text('Grupo eliminado')),
                     );
                 } catch (e) {
+                  setState(() => _isLoading = false);
                   if (mounted)
                     ScaffoldMessenger.of(
                       context,
@@ -556,7 +558,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   void _showCreateGroupDialog(BuildContext context) {
-    final nameController = TextEditingController();
     final displayController = TextEditingController();
 
     showDialog(
@@ -567,17 +568,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
-              controller: nameController,
-              decoration: const InputDecoration(
-                labelText: 'ID del Grupo (ej: matematicas)',
-                hintText: 'Sin espacios, minúsculas',
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
               controller: displayController,
               decoration: const InputDecoration(
-                labelText: 'Nombre Visible (ej: Matemáticas 101)',
+                labelText: 'Nombre del Grupo (ej: Matemáticas 101)',
+                hintText: 'El ID se generará automáticamente',
               ),
             ),
           ],
@@ -589,22 +583,37 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ),
           ElevatedButton(
             onPressed: () async {
+              if (displayController.text.isEmpty) return;
+
               try {
+                // Generar ID automático
+                final generatedId = displayController.text
+                    .toLowerCase()
+                    .trim()
+                    .replaceAll(RegExp(r'\s+'), '_')
+                    .replaceAll(RegExp(r'[^a-z0-9_]'), '');
+
+                if (mounted) setState(() => _isLoading = true);
+
+                Navigator.pop(context);
+
                 await ApiService.createGroup(
-                  nameController.text.toLowerCase().trim(),
+                  generatedId,
                   displayController.text,
                   'Grupo creado por admin',
                   '#3B82F6',
                   '📚',
                 );
-                if (context.mounted) {
-                  Navigator.pop(context);
+
+                if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Grupo creado exitosamente')),
                   );
+                  _loadData();
                 }
               } catch (e) {
-                if (context.mounted) {
+                if (mounted) {
+                  setState(() => _isLoading = false);
                   ScaffoldMessenger.of(
                     context,
                   ).showSnackBar(SnackBar(content: Text('Error: $e')));
