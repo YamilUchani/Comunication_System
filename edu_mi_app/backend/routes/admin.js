@@ -14,7 +14,7 @@ router.get('/users', authenticateUser, requireAdmin, async (req, res) => {
         // Consultar con las columnas que REALMENTE existen en profiles
         const { data: users, error } = await supabase
             .from('profiles')
-            .select('user_id, id, full_name, age, group_name, role, avatar_url, can_create_meetings, created_at, is_verified')
+            .select('user_id, id, full_name, email, age, group_name, role, avatar_url, can_create_meetings, created_at, is_verified')
             .order('created_at', { ascending: false });
 
         console.log('📊 Query result:', {
