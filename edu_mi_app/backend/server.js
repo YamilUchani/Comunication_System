@@ -5,6 +5,9 @@ const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const meetingsRoutes = require('./routes/meetings');
+const adminRoutes = require('./routes/admin');
+const notificationsRoutes = require('./routes/notifications');
+const achievementsRoutes = require('./routes/achievements');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -45,6 +48,9 @@ app.use(express.json());
 
 // Rutas
 app.use('/api/meetings', meetingsRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/achievements', achievementsRoutes);
 
 // Ruta de salud
 app.get('/api/health', (req, res) => {

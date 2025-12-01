@@ -1,36 +1,30 @@
 const supabase = require('../config/supabase');
 
 /**
- * Middleware de autenticación
- * Valida el token JWT de Supabase y adjunta la información del usuario a req.user
+ * Middleware para autenticar usuarios con Supabase
  */
 async function authenticateUser(req, res, next) {
     try {
-        // Obtener el token del header Authorization
         const authHeader = req.headers.authorization;
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
             return res.status(401).json({
-                error: {
-                    message: 'Token de autenticación no proporcionado'
-                }
+                error: { message: 'Token de autenticación no proporcionado' }
             });
         }
 
         const token = authHeader.replace('Bearer ', '');
 
-        // Verificar el token con Supabase
+        // Verificar token con Supabase
         const { data: { user }, error } = await supabase.auth.getUser(token);
 
         if (error || !user) {
             return res.status(401).json({
-                error: {
-                    message: 'Token inválido o expirado'
-                }
+                error: { message: 'Token inválido o expirado' }
             });
         }
 
-        // Obtener el perfil del usuario desde la base de datos
+        // Obtener perfil completo con rol y grupo
         const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('*')
@@ -39,61 +33,53 @@ async function authenticateUser(req, res, next) {
 
         if (profileError) {
             console.error('Error obteniendo perfil:', profileError);
-            return res.status(500).json({
-                error: {
-                    message: 'Error al obtener información del usuario'
-                }
-            });
         }
 
-        // Adjuntar información del usuario a la petición
+        // Adjuntar info del usuario a la petición
         req.user = {
             id: user.id,
             email: user.email,
+            role: profile?.role || 'student',
+            group_name: profile?.group_name,
             profile: profile
         };
 
         next();
     } catch (error) {
         console.error('Error en autenticación:', error);
-        res.status(500).json({
-            error: {
-                message: 'Error interno en el proceso de autenticación'
-            }
+        return res.status(401).json({
+            error: { message: 'Error en la autenticación' }
         });
     }
 }
 
 /**
- * Middleware para verificar si el usuario puede crear reuniones
+ * Middleware para verificar que el usuario puede crear reuniones
  */
 async function canCreateMeeting(req, res, next) {
     try {
-        const userId = req.user.id;
+        const { role, profile } = req.user;
 
-        // Aquí puedes agregar lógica adicional de permisos
-        // Por ejemplo, verificar un campo en el perfil del usuario
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('can_create_meetings, meeting_limit')
-            .eq('user_id', userId)
-            .single();
-
-        // Si tienes un campo específico de permisos
-        if (profile && profile.can_create_meetings === false) {
+        // Solo teachers y administrators pueden crear
+        if (role !== 'teacher' && role !== 'administrator') {
             return res.status(403).json({
-                error: {
-                    message: 'No tienes permisos para crear reuniones'
-                }
+                error: { message: 'Solo maestros y administradores pueden crear reuniones' }
             });
         }
 
-        // Verificar si hay un límite de reuniones activas
-        if (profile && profile.meeting_limit) {
+        // Verificar permiso específico
+        if (profile?.can_create_meetings === false) {
+            return res.status(403).json({
+                error: { message: 'No tienes permisos para crear reuniones' }
+            });
+        }
+
+        // Verificar límite de reuniones (si aplica)
+        if (profile?.meeting_limit) {
             const { count } = await supabase
                 .from('meetings')
                 .select('*', { count: 'exact', head: true })
-                .eq('creator_id', userId)
+                .eq('creator_id', req.user.id)
                 .eq('is_active', true);
 
             if (count >= profile.meeting_limit) {
@@ -109,14 +95,38 @@ async function canCreateMeeting(req, res, next) {
     } catch (error) {
         console.error('Error verificando permisos:', error);
         res.status(500).json({
-            error: {
-                message: 'Error al verificar permisos del usuario'
-            }
+            error: { message: 'Error al verificar permisos' }
         });
     }
 }
 
+/**
+ * Middleware para verificar rol de administrador
+ */
+function requireAdmin(req, res, next) {
+    if (req.user.role !== 'administrator') {
+        return res.status(403).json({
+            error: { message: 'Acceso denegado. Se requiere rol de administrador' }
+        });
+    }
+    next();
+}
+
+/**
+ * Middleware para verificar rol de teacher o admin
+ */
+function requireTeacherOrAdmin(req, res, next) {
+    if (req.user.role !== 'teacher' && req.user.role !== 'administrator') {
+        return res.status(403).json({
+            error: { message: 'Acceso denegado. Se requiere rol de maestro o administrador' }
+        });
+    }
+    next();
+}
+
 module.exports = {
     authenticateUser,
-    canCreateMeeting
+    canCreateMeeting,
+    requireAdmin,
+    requireTeacherOrAdmin
 };
