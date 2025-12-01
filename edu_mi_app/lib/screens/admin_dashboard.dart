@@ -117,13 +117,24 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   Widget _buildActiveMeetingsSection() {
     return ExpansionTile(
-      title: Text(
-        'Reuniones Activas (${_activeMeetings?.length ?? 0})',
-        style: const TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          color: Colors.black,
-        ),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Reuniones Activas (${_activeMeetings?.length ?? 0})',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.add_circle, color: Colors.purple),
+            tooltip: 'Nueva Reunión',
+            onPressed: () => _showCreateMeetingDialog(context),
+          ),
+        ],
       ),
       initiallyExpanded: true,
       children: [
@@ -142,14 +153,28 @@ class _AdminDashboardState extends State<AdminDashboard> {
     if (_groupsWithMembers == null)
       return const Center(child: CircularProgressIndicator());
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return ExpansionTile(
+      title: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Gestión de Grupos',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.add_circle, color: Colors.orange),
+            tooltip: 'Crear Grupo',
+            onPressed: () => _showCreateGroupDialog(context),
+          ),
+        ],
+      ),
+      initiallyExpanded: true,
       children: [
-        const Text(
-          'Gestión de Grupos',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 10),
         ..._groupsWithMembers!.map((group) => _buildGroupTile(group)),
         _buildUnassignedTile(),
       ],
