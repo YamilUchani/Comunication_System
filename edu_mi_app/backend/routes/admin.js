@@ -125,10 +125,12 @@ router.get('/groups/with-members', authenticateUser, requireAdmin, async (req, r
         // 2. Por cada grupo, obtener sus miembros
         const groupsWithMembers = [];
         for (const group of groups) {
+            // Buscar usuarios que tengan el 'name' (id) O el 'display_name' (nombre visible)
+            // Esto soluciona el problema de inconsistencia en la BD
             const { data: members, error: membersError } = await supabase
                 .from('profiles')
-                .select('user_id, full_name, role, avatar_url')
-                .eq('group_name', group.name)
+                .select('user_id, full_name, role, avatar_url, group_name')
+                .or(`group_name.eq.${group.name},group_name.eq.${group.display_name}`)
                 .order('full_name', { ascending: true });
 
             if (!membersError) {
