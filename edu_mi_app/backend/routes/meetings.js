@@ -184,30 +184,24 @@ router.post('/join', authenticateUser, async (req, res) => {
  */
 router.get('/active', authenticateUser, async (req, res) => {
     try {
+        console.log('📥 GET /api/meetings/active - Fetching active meetings');
+
+        // Query simplificada sin foreign key que causaba error
         const { data: meetings, error } = await supabase
             .from('meetings')
-            .select(`
-        id,
-        channel_name,
-        title,
-        description,
-        creator_id,
-        created_at,
-        expires_at,
-        profiles:creator_id (
-          full_name,
-          avatar_url
-        )
-      `)
+            .select('id, channel_name, title, description, creator_id, created_at, expires_at')
             .eq('is_active', true)
             .gt('expires_at', new Date().toISOString())
             .order('created_at', { ascending: false });
 
+        console.log('📊 Active meetings result:', { count: meetings?.length, error: error?.message });
+
         if (error) {
-            console.error('Error obteniendo reuniones:', error);
+            console.error('❌ Error obteniendo reuniones:', error);
             return res.status(500).json({
                 error: {
-                    message: 'Error al obtener las reuniones'
+                    message: 'Error al obtener las reuniones',
+                    details: error.message
                 }
             });
         }
@@ -218,14 +212,13 @@ router.get('/active', authenticateUser, async (req, res) => {
                 channelName: meeting.channel_name,
                 title: meeting.title,
                 description: meeting.description,
-                creatorName: meeting.profiles?.full_name || 'Usuario',
-                creatorAvatar: meeting.profiles?.avatar_url,
+                creatorId: meeting.creator_id,
                 createdAt: meeting.created_at,
                 expiresAt: meeting.expires_at
             }))
         });
     } catch (error) {
-        console.error('Error en /active:', error);
+        console.error('💥 Error en /active:', error);
         res.status(500).json({
             error: {
                 message: 'Error interno al obtener las reuniones'
@@ -243,7 +236,15 @@ router.post('/:meetingId/end', authenticateUser, async (req, res) => {
         const { meetingId } = req.params;
         const userId = req.user.id;
 
-        // Verificar que el usuario sea el creador de la reunión
+        console.log(`📥 POST /api/meetings/${meetingId}/end - User: ${userId}`);
+
+        // Obtener información del usuario y la reunión
+        const { data: userProfile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('user_id', userId)
+            .single();
+
         const { data: meeting, error: meetingError } = await supabase
             .from('meetings')
             .select('*')
@@ -258,10 +259,14 @@ router.post('/:meetingId/end', authenticateUser, async (req, res) => {
             });
         }
 
-        if (meeting.creator_id !== userId) {
+        // Permitir finalizar si es el creador O es administrador
+        const isCreator = meeting.creator_id === userId;
+        const isAdmin = userProfile?.role === 'administrator';
+
+        if (!isCreator && !isAdmin) {
             return res.status(403).json({
                 error: {
-                    message: 'Solo el creador puede finalizar la reunión'
+                    message: 'Solo el creador o un administrador puede finalizar la reunión'
                 }
             });
         }
@@ -273,7 +278,7 @@ router.post('/:meetingId/end', authenticateUser, async (req, res) => {
             .eq('id', meetingId);
 
         if (updateError) {
-            console.error('Error finalizando reunión:', updateError);
+            console.error('❌ Error finalizando reunión:', updateError);
             return res.status(500).json({
                 error: {
                     message: 'Error al finalizar la reunión'
@@ -281,11 +286,13 @@ router.post('/:meetingId/end', authenticateUser, async (req, res) => {
             });
         }
 
+        console.log(`✅ Reunión ${meetingId} finalizada por ${isAdmin ? 'admin' : 'creador'}`);
+
         res.json({
             message: 'Reunión finalizada exitosamente'
         });
     } catch (error) {
-        console.error('Error en /end:', error);
+        console.error('💥 Error en /end:', error);
         res.status(500).json({
             error: {
                 message: 'Error interno al finalizar la reunión'
