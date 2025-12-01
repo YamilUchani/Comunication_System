@@ -245,4 +245,48 @@ router.get('/stats', authenticateUser, requireAdmin, async (req, res) => {
     }
 });
 
+/**
+ * DELETE /api/admin/groups/:groupName
+ * Elimina un grupo y mueve sus miembros a null
+ */
+router.delete('/groups/:groupName', authenticateUser, requireAdmin, async (req, res) => {
+    try {
+        const { groupName } = req.params;
+        const { confirmName } = req.body;
+
+        if (confirmName !== groupName) {
+            return res.status(400).json({ error: { message: 'El nombre de confirmación no coincide' } });
+        }
+
+        console.log(`🗑️ Eliminando grupo: ${groupName}`);
+
+        // 1. Mover usuarios a null (No Asignado)
+        const { error: updateUsersError } = await supabase
+            .from('profiles')
+            .update({ group_name: null })
+            .eq('group_name', groupName);
+
+        if (updateUsersError) {
+            console.error('❌ Error moviendo usuarios:', updateUsersError);
+            return res.status(500).json({ error: { message: 'Error al mover usuarios' } });
+        }
+
+        // 2. Marcar grupo como inactivo (soft delete)
+        const { error: deleteGroupError } = await supabase
+            .from('groups')
+            .update({ is_active: false })
+            .eq('name', groupName);
+
+        if (deleteGroupError) {
+            console.error('❌ Error eliminando grupo:', deleteGroupError);
+            return res.status(500).json({ error: { message: 'Error al eliminar grupo' } });
+        }
+
+        res.json({ message: 'Grupo eliminado correctamente' });
+    } catch (error) {
+        console.error('💥 Error en DELETE /groups:', error);
+        res.status(500).json({ error: { message: 'Error interno' } });
+    }
+});
+
 module.exports = router;
