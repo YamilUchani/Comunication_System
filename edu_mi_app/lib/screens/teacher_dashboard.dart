@@ -365,9 +365,25 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
 
     // Mapa para guardar attendance_id por estudiante si ya existe
     final studentAttendanceIds = <String, String>{};
+    // Mapa para guardar los logros de cada estudiante
+    final studentAchievements = <String, List<dynamic>>{};
+
     if (existingAttendance != null) {
       for (var record in existingAttendance) {
         studentAttendanceIds[record['user_id']] = record['id'];
+      }
+
+      // Cargar logros existentes para cada estudiante
+      for (var studentId in studentAttendanceIds.keys) {
+        final attendanceId = studentAttendanceIds[studentId];
+        try {
+          final achievements = await _getAchievementsForAttendance(
+            attendanceId!,
+          );
+          studentAchievements[studentId] = achievements;
+        } catch (e) {
+          studentAchievements[studentId] = [];
+        }
       }
     }
 
@@ -376,7 +392,6 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
     if (existingAttendance != null) {
       for (var record in existingAttendance) {
         if (record['was_present'] == true || record['user_id'] != null) {
-          // Asumimos que si existe registro es porque asistió, o verificar campo was_present
           selectedStudents.add(record['user_id']);
         }
       }
@@ -390,7 +405,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
     await showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
+        builder: (context, setDialogState) => AlertDialog(
           title: Text('Asistencia: ${DateFormat('dd/MM/yyyy').format(date)}'),
           content: SizedBox(
             width: double.maxFinite,
@@ -402,42 +417,75 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                 final studentId = student['user_id'];
                 final isSelected = selectedStudents.contains(studentId);
                 final attendanceId = studentAttendanceIds[studentId];
+                final achievements = studentAchievements[studentId] ?? [];
 
-                return ListTile(
-                  leading: Checkbox(
-                    value: isSelected,
-                    onChanged: (val) {
-                      setState(() {
-                        if (val == true) {
-                          selectedStudents.add(studentId);
-                        } else {
-                          selectedStudents.remove(studentId);
-                        }
-                      });
-                    },
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: Checkbox(
+                      value: isSelected,
+                      onChanged: (val) {
+                        setDialogState(() {
+                          if (val == true) {
+                            selectedStudents.add(studentId);
+                          } else {
+                            selectedStudents.remove(studentId);
+                          }
+                        });
+                      },
+                    ),
+                    title: Text(student['full_name']),
+                    subtitle: achievements.isNotEmpty
+                        ? Wrap(
+                            spacing: 4,
+                            children: achievements.map((ach) {
+                              return Text(
+                                ach['achievements']['icon'] ?? '🏆',
+                                style: const TextStyle(fontSize: 16),
+                              );
+                            }).toList(),
+                          )
+                        : null,
                   ),
-                  title: Text(student['full_name']),
-                  trailing: (attendanceId != null && isSelected)
-                      ? IconButton(
-                          icon: const Icon(
-                            Icons.emoji_events,
-                            color: Colors.amber,
-                          ),
-                          tooltip: 'Asignar Logro',
-                          onPressed: () {
-                            // Cerrar diálogo de asistencia temporalmente o abrir encima
-                            _showAssignAchievementsDialog(
-                              attendanceId,
-                              student['full_name'],
-                            );
-                          },
-                        )
-                      : null,
                 );
               },
             ),
           ),
           actions: [
+            // Botón de trofeo para asignar logros
+            IconButton(
+              icon: const Icon(
+                Icons.emoji_events,
+                color: Colors.amber,
+                size: 28,
+              ),
+              tooltip: 'Asignar Logros',
+              onPressed: () async {
+                await _showBulkAchievementsDialog(
+                  date,
+                  selectedStudents.toList(),
+                  studentAttendanceIds,
+                );
+                // Recargar logros después de asignar
+                final updatedAchievements = <String, List<dynamic>>{};
+                for (var studentId in studentAttendanceIds.keys) {
+                  final attendanceId = studentAttendanceIds[studentId];
+                  try {
+                    final achievements = await _getAchievementsForAttendance(
+                      attendanceId!,
+                    );
+                    updatedAchievements[studentId] = achievements;
+                  } catch (e) {
+                    updatedAchievements[studentId] = [];
+                  }
+                }
+                setDialogState(() {
+                  studentAchievements.clear();
+                  studentAchievements.addAll(updatedAchievements);
+                });
+              },
+            ),
+            const SizedBox(width: 8),
             ElevatedButton(
               onPressed: () async {
                 try {
@@ -451,7 +499,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Asistencia guardada')),
                     );
-                    _loadAttendanceHistory(); // Recargar calendario
+                    _loadAttendanceHistory();
                   }
                 } catch (e) {
                   ScaffoldMessenger.of(
@@ -465,6 +513,188 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
         ),
       ),
     );
+  }
+
+  // Método auxiliar para obtener logros de una asistencia
+  Future<List<dynamic>> _getAchievementsForAttendance(
+    String attendanceId,
+  ) async {
+    try {
+      final response = await Supabase.instance.client
+          .from('student_achievements')
+          .select('*, achievements(*)')
+          .eq('attendance_id', attendanceId);
+      return response as List<dynamic>;
+    } catch (e) {
+      print('Error loading achievements for attendance: $e');
+      return [];
+    }
+  }
+
+  // Nuevo método para asignar logros a múltiples estudiantes
+  void _showBulkAchievementsDialog(
+    DateTime date,
+    List<String> studentIds,
+    Map<String, String> studentAttendanceIds,
+  ) async {
+    if (studentIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona al menos un estudiante')),
+      );
+      return;
+    }
+
+    try {
+      final allAchievements = await ApiService.getAchievements();
+
+      // Cargar logros actuales de cada estudiante
+      final currentAchievements = <String, Set<String>>{};
+      for (var studentId in studentIds) {
+        final attendanceId = studentAttendanceIds[studentId];
+        if (attendanceId != null) {
+          final achievements = await _getAchievementsForAttendance(
+            attendanceId,
+          );
+          currentAchievements[studentId] = achievements
+              .map((a) => a['achievement_id'] as String)
+              .toSet();
+        } else {
+          currentAchievements[studentId] = {};
+        }
+      }
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setState) => AlertDialog(
+            title: Text(
+              'Asignar Logros - ${DateFormat('dd/MM/yyyy').format(date)}',
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Selecciona logros para ${studentIds.length} estudiante(s):',
+                  ),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: allAchievements.length,
+                      itemBuilder: (context, index) {
+                        final achievement = allAchievements[index];
+                        final achievementId = achievement['id'];
+
+                        // Verificar cuántos estudiantes tienen este logro
+                        int count = 0;
+                        for (var studentId in studentIds) {
+                          if (currentAchievements[studentId]?.contains(
+                                achievementId,
+                              ) ??
+                              false) {
+                            count++;
+                          }
+                        }
+
+                        final isFullySelected = count == studentIds.length;
+                        final isPartiallySelected =
+                            count > 0 && count < studentIds.length;
+
+                        return CheckboxListTile(
+                          secondary: Text(
+                            achievement['icon'] ?? '🏆',
+                            style: const TextStyle(fontSize: 24),
+                          ),
+                          title: Text(achievement['name']),
+                          subtitle: isPartiallySelected
+                              ? Text(
+                                  '$count de ${studentIds.length} estudiantes',
+                                )
+                              : null,
+                          value: isFullySelected,
+                          tristate: true,
+                          onChanged: (val) async {
+                            // Alternar: si está seleccionado, deseleccionar todos; si no, seleccionar todos
+                            final shouldSelect = !isFullySelected;
+
+                            for (var studentId in studentIds) {
+                              final attendanceId =
+                                  studentAttendanceIds[studentId];
+                              if (attendanceId == null) continue;
+
+                              if (shouldSelect) {
+                                // Agregar logro
+                                currentAchievements[studentId]!.add(
+                                  achievementId,
+                                );
+                                try {
+                                  await ApiService.assignAchievementsToAttendance(
+                                    attendanceId,
+                                    [achievementId],
+                                  );
+                                } catch (e) {
+                                  print('Error assigning achievement: $e');
+                                }
+                              } else {
+                                // Quitar logro
+                                currentAchievements[studentId]!.remove(
+                                  achievementId,
+                                );
+                                try {
+                                  await _removeAchievementFromAttendance(
+                                    studentId,
+                                    achievementId,
+                                  );
+                                } catch (e) {
+                                  print('Error removing achievement: $e');
+                                }
+                              }
+                            }
+
+                            setState(() {});
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cerrar'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error cargando logros: $e')));
+    }
+  }
+
+  // Método para eliminar un logro
+  Future<void> _removeAchievementFromAttendance(
+    String studentId,
+    String achievementId,
+  ) async {
+    try {
+      await Supabase.instance.client
+          .from('student_achievements')
+          .delete()
+          .eq('student_id', studentId)
+          .eq('achievement_id', achievementId);
+    } catch (e) {
+      print('Error removing achievement: $e');
+      rethrow;
+    }
   }
 
   void _showAssignAchievementsDialog(
