@@ -532,7 +532,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
   }
 
   // Nuevo método para asignar logros a múltiples estudiantes
-  void _showBulkAchievementsDialog(
+  Future<void> _showBulkAchievementsDialog(
     DateTime date,
     List<String> studentIds,
     Map<String, String> studentAttendanceIds,
