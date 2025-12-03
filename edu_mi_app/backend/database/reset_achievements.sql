@@ -2,9 +2,12 @@
 DELETE FROM student_achievements;
 DELETE FROM achievements;
 
--- Insertar los 4 logros específicos
-INSERT INTO achievements (id, name, description, icon, points) VALUES
-  (gen_random_uuid(), 'Modelo Terminado', 'Completó el modelo de la clase', '✅', 10),
-  (gen_random_uuid(), 'Puntualidad', 'Llegó a tiempo a la clase', '⏰', 5),
-  (gen_random_uuid(), 'Participación', 'Participó activamente en clase', '🙋', 5),
-  (gen_random_uuid(), 'Creatividad', 'Mostró creatividad en su trabajo', '🎨', 10);
+-- Insertar los 4 logros específicos (globales, sin grupo específico)
+-- Nota: Reemplaza 'YOUR_USER_ID' con tu user_id real de la tabla profiles
+-- Puedes obtenerlo con: SELECT user_id FROM profiles WHERE role = 'admin' LIMIT 1;
+
+INSERT INTO achievements (name, description, icon, created_by, group_name, is_global) VALUES
+  ('Modelo Terminado', 'Completó el modelo de la clase', '✅', (SELECT user_id FROM profiles WHERE role = 'admin' LIMIT 1), NULL, true),
+  ('Puntualidad', 'Llegó a tiempo a la clase', '⏰', (SELECT user_id FROM profiles WHERE role = 'admin' LIMIT 1), NULL, true),
+  ('Participación', 'Participó activamente en clase', '🙋', (SELECT user_id FROM profiles WHERE role = 'admin' LIMIT 1), NULL, true),
+  ('Creatividad', 'Mostró creatividad en su trabajo', '🎨', (SELECT user_id FROM profiles WHERE role = 'admin' LIMIT 1), NULL, true);
