@@ -13,6 +13,31 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res) => {
         const { channelName, title, description, allowed_groups, allowed_users } = req.body;
         const userId = req.user.id;
 
+        // Obtener perfil del usuario para validar grupo
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('role, group_name')
+            .eq('user_id', userId)
+            .single();
+
+        // Si es teacher, validar que solo cree reuniones para su grupo
+        if (profile?.role === 'teacher') {
+            if (allowed_groups && allowed_groups.length > 0) {
+                // Verificar que solo incluya su propio grupo
+                const hasOtherGroups = allowed_groups.some(g => g !== profile.group_name);
+                if (hasOtherGroups) {
+                    return res.status(403).json({
+                        error: {
+                            message: 'Los teachers solo pueden crear reuniones para su propio grupo'
+                        }
+                    });
+                }
+            } else {
+                // Si no especifica grupos, asignar automáticamente su grupo
+                req.body.allowed_groups = [profile.group_name];
+            }
+        }
+
         // Validar nombre del canal
         if (!channelName || !isValidChannelName(channelName)) {
             return res.status(400).json({
@@ -178,23 +203,41 @@ router.post('/join', authenticateUser, async (req, res) => {
     }
 });
 
+
 /**
  * GET /api/meetings/active
- * Obtiene la lista de reuniones activas
+ * Obtiene la lista de reuniones activas filtradas por rol y grupo del usuario
  */
 router.get('/active', authenticateUser, async (req, res) => {
     try {
-        console.log('📥 GET /api/meetings/active - Fetching active meetings');
+        const userId = req.user.id;
+        console.log(`📥 GET /api/meetings/active - User: ${userId}`);
 
-        // Query simplificada sin foreign key que causaba error
-        const { data: meetings, error } = await supabase
+        // Obtener perfil del usuario para determinar rol y grupo
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('role, group_name')
+            .eq('user_id', userId)
+            .single();
+
+        if (profileError || !profile) {
+            console.error('❌ Error obteniendo perfil:', profileError);
+            return res.status(500).json({
+                error: { message: 'Error al obtener perfil de usuario' }
+            });
+        }
+
+        console.log(`👤 User role: ${profile.role}, group: ${profile.group_name}`);
+
+        // Query base de reuniones activas
+        let query = supabase
             .from('meetings')
-            .select('id, channel_name, title, description, creator_id, created_at, expires_at')
+            .select('id, channel_name, title, description, creator_id, created_at, expires_at, allowed_groups')
             .eq('is_active', true)
             .gt('expires_at', new Date().toISOString())
             .order('created_at', { ascending: false });
 
-        console.log('📊 Active meetings result:', { count: meetings?.length, error: error?.message });
+        const { data: allMeetings, error } = await query;
 
         if (error) {
             console.error('❌ Error obteniendo reuniones:', error);
@@ -206,8 +249,43 @@ router.get('/active', authenticateUser, async (req, res) => {
             });
         }
 
+        // Filtrar reuniones según el rol
+        let filteredMeetings = allMeetings || [];
+
+        if (profile.role === 'administrator') {
+            // Admin ve TODAS las reuniones
+            console.log('🔓 Admin: mostrando todas las reuniones');
+        } else if (profile.role === 'teacher') {
+            // Teacher ve reuniones de su grupo o las que creó
+            filteredMeetings = filteredMeetings.filter(meeting => {
+                const isCreator = meeting.creator_id === userId;
+                // Verificar si el grupo del teacher está en los grupos permitidos
+                // IMPORTANTE: Esto permite ver reuniones creadas por Admin para este grupo
+                const isInAllowedGroups = meeting.allowed_groups &&
+                    meeting.allowed_groups.includes(profile.group_name);
+
+                // Si no hay restricciones, todos pueden verla (opcional, depende de reglas de negocio)
+                const hasNoRestrictions = !meeting.allowed_groups || meeting.allowed_groups.length === 0;
+
+                return isCreator || isInAllowedGroups || hasNoRestrictions;
+            });
+            console.log(`👨‍🏫 Teacher: ${filteredMeetings.length} reuniones visibles (Propio grupo o Creador)`);
+        } else if (profile.role === 'student') {
+            // Student solo ve reuniones de su grupo
+            filteredMeetings = filteredMeetings.filter(meeting => {
+                const isInAllowedGroups = meeting.allowed_groups &&
+                    meeting.allowed_groups.includes(profile.group_name);
+                const hasNoRestrictions = !meeting.allowed_groups || meeting.allowed_groups.length === 0;
+
+                return isInAllowedGroups || hasNoRestrictions;
+            });
+            console.log(`👨‍🎓 Student: ${filteredMeetings.length} reuniones de su grupo`);
+        }
+
+        console.log(`📊 Returning ${filteredMeetings.length} meetings`);
+
         res.json({
-            meetings: meetings.map(meeting => ({
+            meetings: filteredMeetings.map(meeting => ({
                 id: meeting.id,
                 channelName: meeting.channel_name,
                 title: meeting.title,

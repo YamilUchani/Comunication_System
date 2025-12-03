@@ -185,70 +185,103 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final members = group['members'] as List<dynamic>? ?? [];
     final color = _parseColor(group['color']);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ExpansionTile(
-        leading: CircleAvatar(
-          backgroundColor: color,
-          child: Text(
-            group['display_name']?[0] ?? 'G',
-            style: const TextStyle(color: Colors.white),
-          ),
-        ),
-        title: Text(
-          group['display_name'] ?? group['name'],
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Text('${members.length} miembros'),
-        children: [
-          ...members.map((member) => _buildMemberTile(member)),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton.icon(
-                  icon: const Icon(Icons.edit),
-                  label: const Text('Editar / Mover'),
-                  onPressed: () {
-                    // TODO: Implementar Drag & Drop dialog
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Próximamente: Drag & Drop'),
-                      ),
-                    );
-                  },
-                ),
-                TextButton.icon(
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  label: const Text('Eliminar Grupo'),
-                  onPressed: () => _confirmDeleteGroup(group),
-                ),
-              ],
+    return DragTarget<Object>(
+      onWillAccept: (data) {
+        if (data is Map<String, dynamic>) {
+          return data['group_name'] != group['name'];
+        }
+        return false;
+      },
+      onAccept: (data) {
+        if (data is Map<String, dynamic>) {
+          _moveUserToGroup(data, group['name']);
+        }
+      },
+      builder: (context, candidateData, rejectedData) {
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          color: candidateData.isNotEmpty ? Colors.blue.withOpacity(0.1) : null,
+          shape: candidateData.isNotEmpty
+              ? RoundedRectangleBorder(
+                  side: const BorderSide(color: Colors.blue, width: 2),
+                  borderRadius: BorderRadius.circular(12),
+                )
+              : null,
+          child: ExpansionTile(
+            leading: CircleAvatar(
+              backgroundColor: color,
+              child: Text(
+                group['display_name']?[0] ?? 'G',
+                style: const TextStyle(color: Colors.white),
+              ),
             ),
+            title: Text(
+              group['display_name'] ?? group['name'],
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text('${members.length} miembros'),
+            children: [
+              ...members.map((member) => _buildMemberTile(member)),
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton.icon(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      label: const Text('Eliminar Grupo'),
+                      onPressed: () => _confirmDeleteGroup(group),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   Widget _buildUnassignedTile() {
     final users = _unassignedUsers ?? [];
-    return Card(
-      color: Colors.grey[100],
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ExpansionTile(
-        leading: const Icon(Icons.person_outline, color: Colors.grey),
-        title: const Text('No Asignados'),
-        subtitle: Text('${users.length} usuarios sin grupo'),
-        children: users.map((u) => _buildMemberTile(u)).toList(),
-      ),
+    return DragTarget<Object>(
+      onWillAccept: (data) {
+        if (data is Map<String, dynamic>) {
+          return data['group_name'] != null;
+        }
+        return false;
+      },
+      onAccept: (data) {
+        if (data is Map<String, dynamic>) {
+          _moveUserToGroup(data, null);
+        }
+      },
+      builder: (context, candidateData, rejectedData) {
+        return Card(
+          color: candidateData.isNotEmpty
+              ? Colors.grey.withOpacity(0.3)
+              : Colors.grey[100],
+          margin: const EdgeInsets.only(bottom: 8),
+          shape: candidateData.isNotEmpty
+              ? RoundedRectangleBorder(
+                  side: const BorderSide(color: Colors.grey, width: 2),
+                  borderRadius: BorderRadius.circular(12),
+                )
+              : null,
+          child: ExpansionTile(
+            leading: const Icon(Icons.person_outline, color: Colors.grey),
+            title: const Text('No Asignados'),
+            subtitle: Text('${users.length} usuarios sin grupo'),
+            children: users.map((u) => _buildMemberTile(u)).toList(),
+          ),
+        );
+      },
     );
   }
 
   Widget _buildMemberTile(dynamic user) {
     final isTeacher = user['role'] == 'teacher';
-    return ListTile(
+    final tile = ListTile(
       leading: CircleAvatar(
         radius: 15,
         backgroundColor: isTeacher ? Colors.red : Colors.blue,
@@ -261,15 +294,206 @@ class _AdminDashboardState extends State<AdminDashboard> {
       title: Text(user['full_name'] ?? 'Sin nombre'),
       subtitle: Text(isTeacher ? 'Profesor' : 'Estudiante'),
       dense: true,
-      trailing: isTeacher
-          ? const Chip(
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isTeacher)
+            const Chip(
               label: Text(
                 'Teacher',
                 style: TextStyle(fontSize: 10, color: Colors.white),
               ),
               backgroundColor: Colors.red,
-            )
-          : null,
+            ),
+          IconButton(
+            icon: const Icon(Icons.edit, size: 18),
+            onPressed: () => _showEditUserDialog(user),
+            tooltip: 'Editar usuario',
+          ),
+        ],
+      ),
+    );
+
+    return Draggable<Object>(
+      data: user,
+      feedback: Material(
+        elevation: 4,
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.8,
+          child: tile,
+        ),
+      ),
+      childWhenDragging: Opacity(opacity: 0.5, child: tile),
+      child: tile,
+    );
+  }
+
+  Future<void> _moveUserToGroup(dynamic user, String? newGroupName) async {
+    if (!mounted) return;
+
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Moviendo a ${user['full_name']} a ${newGroupName ?? "No Asignados"}...',
+          ),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+
+      await ApiService.updateUserRole(
+        user['user_id'],
+        user['role'], // Mantener el mismo rol
+        newGroupName,
+      );
+
+      if (mounted) {
+        _loadData(); // Recargar datos para reflejar el cambio
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error moviendo usuario: $e')));
+      }
+    }
+  }
+
+  void _showEditUserDialog(dynamic user) async {
+    String selectedRole = user['role'] ?? 'student';
+    String? selectedGroup = user['group_name'];
+
+    // Obtener lista de grupos disponibles
+    List<dynamic> groups = [];
+    try {
+      groups = await ApiService.getGroups();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error cargando grupos: $e')));
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('Editar: ${user['full_name']}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Rol:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              DropdownButton<String>(
+                value: selectedRole,
+                isExpanded: true,
+                items: const [
+                  DropdownMenuItem(
+                    value: 'student',
+                    child: Row(
+                      children: [
+                        Icon(Icons.person, color: Colors.blue),
+                        SizedBox(width: 8),
+                        Text('Estudiante'),
+                      ],
+                    ),
+                  ),
+                  DropdownMenuItem(
+                    value: 'teacher',
+                    child: Row(
+                      children: [
+                        Icon(Icons.school, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Profesor'),
+                      ],
+                    ),
+                  ),
+                  DropdownMenuItem(
+                    value: 'administrator',
+                    child: Row(
+                      children: [
+                        Icon(Icons.admin_panel_settings, color: Colors.purple),
+                        SizedBox(width: 8),
+                        Text('Administrador'),
+                      ],
+                    ),
+                  ),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    selectedRole = value!;
+                  });
+                },
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Grupo:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              DropdownButton<String?>(
+                value: selectedGroup,
+                isExpanded: true,
+                hint: const Text('Sin grupo'),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('Sin grupo')),
+                  ...groups.map(
+                    (g) => DropdownMenuItem(
+                      value: g['name'],
+                      child: Text(g['display_name']),
+                    ),
+                  ),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    selectedGroup = value;
+                  });
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  await ApiService.updateUserRole(
+                    user['user_id'],
+                    selectedRole,
+                    selectedGroup,
+                  );
+
+                  if (mounted) {
+                    Navigator.pop(dialogContext);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Usuario actualizado exitosamente'),
+                      ),
+                    );
+                    _loadData();
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('Error: $e')));
+                  }
+                }
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -319,22 +543,22 @@ class _AdminDashboardState extends State<AdminDashboard> {
               if (confirmController.text == groupName) {
                 Navigator.pop(context);
                 try {
-                  setState(() => _isLoading = true);
                   await ApiService.deleteGroup(
                     groupName,
                     confirmController.text,
                   );
-                  _loadData(); // Recargar
-                  if (mounted)
+                  _loadData(); // Recargar silenciosamente
+                  if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Grupo eliminado')),
                     );
+                  }
                 } catch (e) {
-                  setState(() => _isLoading = false);
-                  if (mounted)
+                  if (mounted) {
                     ScaffoldMessenger.of(
                       context,
                     ).showSnackBar(SnackBar(content: Text('Error: $e')));
+                  }
                 }
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -557,12 +781,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-  void _showCreateGroupDialog(BuildContext context) {
+  void _showCreateGroupDialog(BuildContext parentContext) {
     final displayController = TextEditingController();
 
     showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
+      context: parentContext,
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Crear Nuevo Grupo'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -578,7 +802,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancelar'),
           ),
           ElevatedButton(
@@ -593,10 +817,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     .replaceAll(RegExp(r'\s+'), '_')
                     .replaceAll(RegExp(r'[^a-z0-9_]'), '');
 
-                if (mounted) setState(() => _isLoading = true);
-
-                Navigator.pop(context);
-
+                // Esperar a que termine la creación
                 await ApiService.createGroup(
                   generatedId,
                   displayController.text,
@@ -605,17 +826,19 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   '📚',
                 );
 
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                if (parentContext.mounted) {
+                  Navigator.pop(dialogContext); // Cerrar diálogo
+                  ScaffoldMessenger.of(parentContext).showSnackBar(
                     const SnackBar(content: Text('Grupo creado exitosamente')),
                   );
+
+                  // Recargar datos silenciosamente
                   _loadData();
                 }
               } catch (e) {
-                if (mounted) {
-                  setState(() => _isLoading = false);
+                if (parentContext.mounted) {
                   ScaffoldMessenger.of(
-                    context,
+                    parentContext,
                   ).showSnackBar(SnackBar(content: Text('Error: $e')));
                 }
               }
@@ -627,7 +850,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-  void _showCreateMeetingDialog(BuildContext context) async {
+  void _showCreateMeetingDialog(BuildContext parentContext) async {
     final titleController = TextEditingController();
     List<dynamic> groups = [];
     List<String> selectedGroups = [];
@@ -638,11 +861,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
       // Ignorar error de carga de grupos
     }
 
-    if (!context.mounted) return;
+    if (!parentContext.mounted) return;
 
     showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
+      context: parentContext,
+      builder: (dialogContext) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
           title: const Text('Iniciar Reunión'),
           content: SingleChildScrollView(
@@ -682,7 +905,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Cancelar'),
             ),
             ElevatedButton(
@@ -696,8 +919,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
                         : selectedGroups,
                   );
 
-                  if (context.mounted) {
-                    Navigator.pop(context);
+                  if (parentContext.mounted) {
+                    Navigator.pop(dialogContext);
                     _loadData(); // Recargar lista de reuniones
 
                     final user = Supabase.instance.client.auth.currentUser;
@@ -710,7 +933,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     final userName = profile['full_name'] ?? 'Admin';
 
                     Navigator.push(
-                      context,
+                      parentContext,
                       MaterialPageRoute(
                         builder: (_) => VideoCallScreen(
                           channelName: meeting['channelName'],
@@ -721,9 +944,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     );
                   }
                 } catch (e) {
-                  if (context.mounted) {
+                  if (parentContext.mounted) {
                     ScaffoldMessenger.of(
-                      context,
+                      parentContext,
                     ).showSnackBar(SnackBar(content: Text('Error: $e')));
                   }
                 }

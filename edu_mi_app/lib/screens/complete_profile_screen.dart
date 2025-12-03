@@ -23,20 +23,58 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
 
-      await Supabase.instance.client.from('profiles').update({
+      // Usar upsert para asegurar que el perfil se cree si no existe
+      await Supabase.instance.client.from('profiles').upsert({
+        'user_id': user.id,
         'full_name': _nameController.text.trim(),
         'age': int.parse(_ageController.text.trim()),
-      }).eq('user_id', user.id);
+        'email': user.email,
+        'role': 'student', // Asegurar rol por defecto
+      });
+
+      // Verificar si el usuario ya tiene grupo asignado
+      final profile = await Supabase.instance.client
+          .from('profiles')
+          .select('group_name, role')
+          .eq('user_id', user.id)
+          .single();
 
       if (mounted) {
-        Navigator.of(context)
-            .pushNamedAndRemoveUntil('/home', (route) => false);
+        final groupName = profile['group_name'];
+        final role = profile['role'] ?? 'student';
+
+        // Si es administrador, ir directo al dashboard
+        if (role == 'administrator') {
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil('/admin-dashboard', (route) => false);
+          return;
+        }
+
+        // Si tiene grupo, ir al dashboard correspondiente
+        if (groupName != null && groupName.isNotEmpty) {
+          if (role == 'teacher') {
+            Navigator.of(
+              context,
+            ).pushNamedAndRemoveUntil('/teacher-dashboard', (route) => false);
+          } else {
+            Navigator.of(
+              context,
+            ).pushNamedAndRemoveUntil('/student-dashboard', (route) => false);
+          }
+        } else {
+          // Si no tiene grupo, ir a pantalla de espera
+          Navigator.of(context).pushNamedAndRemoveUntil(
+            '/waiting-for-assignment',
+            (route) => false,
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al guardar: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al guardar: $e')));
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -55,8 +93,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
             children: [
               TextFormField(
                 controller: _nameController,
-                decoration:
-                    const InputDecoration(labelText: "Nombre completo"),
+                decoration: const InputDecoration(labelText: "Nombre completo"),
                 validator: (val) =>
                     val == null || val.isEmpty ? "Ingresa tu nombre" : null,
               ),

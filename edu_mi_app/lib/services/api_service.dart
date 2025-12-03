@@ -257,4 +257,94 @@ class ApiService {
       throw Exception('Error finalizando reunión: ${response.body}');
     }
   }
+
+  // ==========================================
+  // ATTENDANCE
+  // ==========================================
+
+  static Future<List<dynamic>> recordAttendance({
+    required String meetingDate,
+    required List<String> studentIds,
+    String? meetingId,
+    String? notes,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/attendance/record'),
+      headers: await _getHeaders(),
+      body: jsonEncode({
+        'meeting_date': meetingDate,
+        'student_ids': studentIds,
+        'meeting_id': meetingId,
+        'notes': notes,
+      }),
+    );
+
+    if (response.statusCode == 201) {
+      return jsonDecode(response.body)['attendance'];
+    } else {
+      throw Exception('Error registrando asistencia: ${response.body}');
+    }
+  }
+
+  static Future<List<dynamic>> getTeacherAttendance(
+    String teacherId, {
+    String? startDate,
+    String? endDate,
+  }) async {
+    String query = '';
+    if (startDate != null) query += 'start_date=$startDate&';
+    if (endDate != null) query += 'end_date=$endDate&';
+
+    final response = await http.get(
+      Uri.parse('$_baseUrl/attendance/teacher/$teacherId?$query'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body)['attendance'];
+    } else {
+      throw Exception('Error obteniendo asistencias: ${response.body}');
+    }
+  }
+
+  static Future<List<dynamic>> getStudentAttendance(String studentId) async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/attendance/student/$studentId'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body)['attendance'];
+    } else {
+      throw Exception('Error obteniendo asistencias: ${response.body}');
+    }
+  }
+
+  static Future<List<dynamic>> getAttendanceByDate(String date) async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/attendance/date/$date'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body)['attendance'];
+    } else {
+      throw Exception('Error obteniendo asistencias: ${response.body}');
+    }
+  }
+
+  static Future<void> assignAchievementsToAttendance(
+    String attendanceId,
+    List<String> achievementIds,
+  ) async {
+    final response = await http.put(
+      Uri.parse('$_baseUrl/attendance/$attendanceId/achievements'),
+      headers: await _getHeaders(),
+      body: jsonEncode({'achievement_ids': achievementIds}),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Error asignando logros: ${response.body}');
+    }
+  }
 }

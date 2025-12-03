@@ -40,48 +40,52 @@ class DeepLinkService {
 
     setAuthInProgress(true);
 
-    final authCode = uri.queryParameters['auth'] ?? uri.queryParameters['code'];
-    final error = uri.queryParameters['error'];
+    // Intentar obtener tokens de los query parameters o del fragmento
+    String? accessToken = uri.queryParameters['access_token'];
+    String? refreshToken = uri.queryParameters['refresh_token'];
+
+    // Si no están en query, buscar en fragmento (formato: #access_token=...&refresh_token=...)
+    if (accessToken == null && uri.fragment.isNotEmpty) {
+      final fragmentParams = Uri.splitQueryString(uri.fragment);
+      accessToken = fragmentParams['access_token'];
+      refreshToken = fragmentParams['refresh_token'];
+    }
+
+    final authCode = uri.queryParameters['code'];
+    final error =
+        uri.queryParameters['error'] ??
+        uri.queryParameters['error_description'];
 
     if (error != null) {
       setAuthInProgress(false);
-      print("❌ Error de autenticación recibido desde el enlace: $error");
-      _showSnackBar(navigatorKey, 'Error de autenticación: $error', Colors.red);
-      navigatorKey.currentState?.pushNamedAndRemoveUntil(
-        '/login',
-        (route) => false,
-      );
+      print("❌ Error de autenticación recibido: $error");
+      _showSnackBar(navigatorKey, 'Error: $error', Colors.red);
       return;
     }
-
-    if (authCode == null || authCode.isEmpty) {
-      setAuthInProgress(false);
-      print("⚠️ No se encontró authorization code en el enlace");
-      _showSnackBar(
-        navigatorKey,
-        'No se encontró authorization code en el enlace.',
-        Colors.orange,
-      );
-      return;
-    }
-
-    print("🔑 Authorization code recibido: $authCode");
 
     try {
-      final response = await Supabase.instance.client.auth
-          .exchangeCodeForSession(authCode);
-      final session = response.session;
+      if (accessToken != null && refreshToken != null) {
+        print("🔑 Tokens recibidos directamente (Implicit Flow)");
+        // En implicit flow, setSession suele requerir refresh token.
+        // Si la librería lo permite, pasamos ambos o solo refresh.
+        // Supabase Flutter v2 setSession toma (String refreshToken).
+        await Supabase.instance.client.auth.setSession(refreshToken);
+      } else if (authCode != null) {
+        // Fallback a PKCE si llega un código
+        print("🔑 Authorization code recibido: $authCode");
+        await Supabase.instance.client.auth.exchangeCodeForSession(authCode);
+      } else {
+        throw Exception("No se encontraron credenciales en el enlace");
+      }
 
-      print("✅ Sesión iniciada correctamente: ${session.user.email}");
+      print("✅ Sesión iniciada correctamente");
       _showSnackBar(
         navigatorKey,
         'Sesión iniciada correctamente',
         Colors.green,
       );
-
-      // La navegación se manejará por el listener de auth state en main
     } catch (e) {
-      print("❌ Error al intercambiar el authorization code: $e");
+      print("❌ Error al iniciar sesión: $e");
       _showSnackBar(navigatorKey, 'Error al iniciar sesión: $e', Colors.red);
     } finally {
       setAuthInProgress(false);

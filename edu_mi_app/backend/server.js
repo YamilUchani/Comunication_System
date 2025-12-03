@@ -8,6 +8,7 @@ const meetingsRoutes = require('./routes/meetings');
 const adminRoutes = require('./routes/admin');
 const notificationsRoutes = require('./routes/notifications');
 const achievementsRoutes = require('./routes/achievements');
+const attendanceRoutes = require('./routes/attendance');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -51,6 +52,7 @@ app.use('/api/meetings', meetingsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/achievements', achievementsRoutes);
+app.use('/api/attendance', attendanceRoutes);
 
 // Ruta de salud
 app.get('/api/health', (req, res) => {

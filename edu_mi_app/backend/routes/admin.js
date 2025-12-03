@@ -273,10 +273,10 @@ router.delete('/groups/:groupName', authenticateUser, requireAdmin, async (req, 
             return res.status(500).json({ error: { message: 'Error al mover usuarios' } });
         }
 
-        // 2. Marcar grupo como inactivo (soft delete)
+        // 2. Eliminar grupo físicamente (Hard Delete)
         const { error: deleteGroupError } = await supabase
             .from('groups')
-            .update({ is_active: false })
+            .delete()
             .eq('name', groupName);
 
         if (deleteGroupError) {

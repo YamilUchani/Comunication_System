@@ -33,7 +33,7 @@ class _LoginScreenState extends State<LoginScreen> {
             .eq('user_id', Supabase.instance.client.auth.currentUser!.id);
       }
       if (mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
+        // La navegación se maneja en main.dart con onAuthStateChange
       }
     } on AuthException catch (e) {
       if (e.message.contains('Email not confirmed') && mounted) {
