@@ -35,7 +35,8 @@ router.post('/record', authenticateUser, async (req, res) => {
             });
         }
 
-        // Crear registros de asistencia para cada estudiante
+        // Crear o actualizar registros de asistencia para cada estudiante
+        // Usar upsert para evitar duplicados por fecha
         const attendanceRecords = student_ids.map(studentId => ({
             user_id: studentId,
             meeting_date: meeting_date,
@@ -46,7 +47,10 @@ router.post('/record', authenticateUser, async (req, res) => {
 
         const { data: attendance, error } = await supabase
             .from('attendance')
-            .insert(attendanceRecords)
+            .upsert(attendanceRecords, {
+                onConflict: 'user_id,meeting_date',
+                ignoreDuplicates: false  // Actualizar si ya existe
+            })
             .select();
 
         if (error) {
