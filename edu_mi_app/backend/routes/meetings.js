@@ -77,9 +77,7 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res) => {
                 creator_id: userId,
                 is_active: true,
                 allowed_groups: allowed_groups || [],
-                allowed_users: allowed_users || [],
-                created_at: new Date().toISOString(),
-                expires_at: new Date(Date.now() + expirationTime * 1000).toISOString()
+                allowed_users: allowed_users || []
             })
             .select()
             .single();
@@ -229,10 +227,20 @@ router.get('/active', authenticateUser, async (req, res) => {
 
         console.log(`👤 User role: ${profile.role}, group: ${profile.group_name}`);
 
-        // Query base de reuniones activas
+        // Query base de reuniones activas con nombre del creador
         let query = supabase
             .from('meetings')
-            .select('id, channel_name, title, description, creator_id, created_at, expires_at, allowed_groups')
+            .select(`
+                id, 
+                channel_name, 
+                title, 
+                description, 
+                creator_id, 
+                created_at, 
+                expires_at, 
+                allowed_groups,
+                creator:profiles!meetings_creator_id_fkey(full_name)
+            `)
             .eq('is_active', true)
             .gt('expires_at', new Date().toISOString())
             .order('created_at', { ascending: false });
@@ -291,6 +299,7 @@ router.get('/active', authenticateUser, async (req, res) => {
                 title: meeting.title,
                 description: meeting.description,
                 creatorId: meeting.creator_id,
+                creatorName: meeting.creator?.full_name || 'Desconocido',
                 createdAt: meeting.created_at,
                 expiresAt: meeting.expires_at
             }))
