@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../services/api_service.dart';
 import '../video_call/video_call_screen.dart';
 
@@ -16,6 +17,12 @@ class _StudentDashboardState extends State<StudentDashboard> {
   List<dynamic>? _activeMeetings;
   List<dynamic>? _attendanceHistory;
   bool _isLoading = true;
+
+  // Calendar state
+  DateTime _focusedDay = DateTime.now();
+  DateTime? _selectedDay;
+  CalendarFormat _calendarFormat = CalendarFormat.month;
+  Map<DateTime, List<dynamic>> _attendanceEvents = {};
 
   @override
   void initState() {
@@ -39,6 +46,21 @@ class _StudentDashboardState extends State<StudentDashboard> {
           _achievements = results[0];
           _activeMeetings = results[1];
           _attendanceHistory = results[2];
+
+          // Procesar eventos del calendario
+          _attendanceEvents.clear();
+          if (_attendanceHistory != null) {
+            for (var record in _attendanceHistory!) {
+              final date = DateTime.parse(record['attendance_date']);
+              final normalizedDate = DateTime(date.year, date.month, date.day);
+
+              if (_attendanceEvents[normalizedDate] == null) {
+                _attendanceEvents[normalizedDate] = [];
+              }
+              _attendanceEvents[normalizedDate]!.add(record);
+            }
+          }
+
           _isLoading = false;
         });
       }
@@ -57,6 +79,11 @@ class _StudentDashboardState extends State<StudentDashboard> {
         title: const Text('Mi Aula'),
         backgroundColor: Colors.orange,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month),
+            onPressed: () => _showAttendanceCalendar(context),
+            tooltip: 'Ver Calendario',
+          ),
           IconButton(
             icon: const Icon(Icons.person),
             onPressed: () => _showStudentProfile(context),
@@ -313,6 +340,152 @@ class _StudentDashboardState extends State<StudentDashboard> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // Mostrar calendario de asistencia
+  void _showAttendanceCalendar(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Mi Calendario de Asistencia'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TableCalendar(
+                  firstDay: DateTime.utc(2024, 1, 1),
+                  lastDay: DateTime.utc(2030, 12, 31),
+                  focusedDay: _focusedDay,
+                  calendarFormat: _calendarFormat,
+                  selectedDayPredicate: (day) {
+                    return isSameDay(_selectedDay, day);
+                  },
+                  onDaySelected: (selectedDay, focusedDay) {
+                    setState(() {
+                      _selectedDay = selectedDay;
+                      _focusedDay = focusedDay;
+                    });
+                    _showAttendanceDetail(selectedDay);
+                  },
+                  onFormatChanged: (format) {
+                    setState(() {
+                      _calendarFormat = format;
+                    });
+                  },
+                  eventLoader: (day) {
+                    final normalizedDay = DateTime(
+                      day.year,
+                      day.month,
+                      day.day,
+                    );
+                    return _attendanceEvents[normalizedDay] ?? [];
+                  },
+                  calendarStyle: const CalendarStyle(
+                    markerDecoration: BoxDecoration(
+                      color: Colors.orange,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Mostrar detalle de asistencia de un día
+  void _showAttendanceDetail(DateTime date) async {
+    final normalizedDate = DateTime(date.year, date.month, date.day);
+    final attendanceRecord = _attendanceEvents[normalizedDate];
+
+    if (attendanceRecord == null || attendanceRecord.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No hay registro de asistencia para este día'),
+        ),
+      );
+      return;
+    }
+
+    // Obtener logros para este registro de asistencia
+    final attendanceId = attendanceRecord[0]['id'];
+    List<dynamic> achievements = [];
+
+    try {
+      final response = await Supabase.instance.client
+          .from('student_achievements')
+          .select('*, achievements(*)')
+          .eq('attendance_id', attendanceId);
+      achievements = response as List<dynamic>;
+    } catch (e) {
+      print('Error loading achievements: $e');
+    }
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Asistencia - ${DateFormat('dd/MM/yyyy').format(date)}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '✅ Presente',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.green,
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (achievements.isNotEmpty) ...[
+              const Text(
+                'Logros obtenidos:',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: achievements.map((ach) {
+                  final achievement = ach['achievements'];
+                  return Chip(
+                    avatar: Text(
+                      achievement['icon'] ?? '🏆',
+                      style: const TextStyle(fontSize: 20),
+                    ),
+                    label: Text(achievement['name']),
+                    backgroundColor: Colors.orange.shade100,
+                  );
+                }).toList(),
+              ),
+            ] else
+              const Text(
+                'No obtuviste logros en esta clase.',
+                style: TextStyle(color: Colors.grey),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+        ],
       ),
     );
   }
