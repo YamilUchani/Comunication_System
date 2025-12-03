@@ -77,7 +77,8 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res) => {
                 creator_id: userId,
                 is_active: true,
                 allowed_groups: allowed_groups || [],
-                allowed_users: allowed_users || []
+                allowed_users: allowed_users || [],
+                expires_at: new Date(Date.now() + expirationTime * 1000).toISOString()
             })
             .select()
             .single();
