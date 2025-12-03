@@ -227,20 +227,10 @@ router.get('/active', authenticateUser, async (req, res) => {
 
         console.log(`👤 User role: ${profile.role}, group: ${profile.group_name}`);
 
-        // Query base de reuniones activas con nombre del creador
+        // Query base de reuniones activas
         let query = supabase
             .from('meetings')
-            .select(`
-                id, 
-                channel_name, 
-                title, 
-                description, 
-                creator_id, 
-                created_at, 
-                expires_at, 
-                allowed_groups,
-                creator:profiles(full_name)
-            `)
+            .select('id, channel_name, title, description, creator_id, created_at, expires_at, allowed_groups')
             .eq('is_active', true)
             .gt('expires_at', new Date().toISOString())
             .order('created_at', { ascending: false });
@@ -290,6 +280,20 @@ router.get('/active', authenticateUser, async (req, res) => {
             console.log(`👨‍🎓 Student: ${filteredMeetings.length} reuniones de su grupo`);
         }
 
+        // Obtener nombres de los creadores
+        const creatorIds = [...new Set(filteredMeetings.map(m => m.creator_id))];
+        const { data: creators } = await supabase
+            .from('profiles')
+            .select('user_id, full_name')
+            .in('user_id', creatorIds);
+
+        const creatorMap = {};
+        if (creators) {
+            creators.forEach(c => {
+                creatorMap[c.user_id] = c.full_name;
+            });
+        }
+
         console.log(`📊 Returning ${filteredMeetings.length} meetings`);
 
         res.json({
@@ -299,7 +303,7 @@ router.get('/active', authenticateUser, async (req, res) => {
                 title: meeting.title,
                 description: meeting.description,
                 creatorId: meeting.creator_id,
-                creatorName: meeting.creator?.full_name || 'Desconocido',
+                creatorName: creatorMap[meeting.creator_id] || 'Desconocido',
                 createdAt: meeting.created_at,
                 expiresAt: meeting.expires_at
             }))
