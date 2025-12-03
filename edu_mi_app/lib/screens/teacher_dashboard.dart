@@ -580,12 +580,15 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
   ) {
     // Buscar el ID del logro por nombre
     final isSelected = currentAchievementIds.any((id) {
-      final achievement = studentAchievements[studentId]?.firstWhere(
-        (a) => a['achievement_id'] == id,
-        orElse: () => null,
-      );
-      return achievement != null &&
-          achievement['achievements']['name'] == achievementName;
+      try {
+        final achievement = studentAchievements[studentId]?.firstWhere(
+          (a) => a['achievement_id'] == id,
+        );
+        return achievement != null &&
+            achievement['achievements']['name'] == achievementName;
+      } catch (e) {
+        return false;
+      }
     });
 
     return InkWell(
@@ -593,10 +596,9 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
         // Obtener todos los logros para encontrar el ID correcto
         try {
           final allAchievements = await ApiService.getAchievements();
-          final targetAchievement = allAchievements.firstWhere(
-            (a) => a['name'] == achievementName,
-            orElse: () => null,
-          );
+          final targetAchievement = allAchievements
+              .where((a) => a['name'] == achievementName)
+              .firstOrNull;
 
           if (targetAchievement == null) return;
 
