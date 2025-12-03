@@ -365,22 +365,40 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
     final studentAchievements = <String, List<dynamic>>{};
 
     if (existingAttendance != null) {
+      print(
+        '🔍 Found ${existingAttendance.length} attendance records for $normalizedDate',
+      );
       for (var record in existingAttendance) {
+        print(
+          '   - Student: ${record['user_id']}, Attendance ID: ${record['id']}',
+        );
         studentAttendanceIds[record['user_id']] = record['id'];
       }
 
       // Cargar logros existentes para cada estudiante
       for (var studentId in studentAttendanceIds.keys) {
         final attendanceId = studentAttendanceIds[studentId];
+        print(
+          '🎯 Loading achievements for student $studentId, attendance $attendanceId',
+        );
         try {
           final achievements = await _getAchievementsForAttendance(
             attendanceId!,
           );
+          print('   ✅ Found ${achievements.length} achievements');
+          for (var ach in achievements) {
+            print(
+              '      - ${ach['achievements']['name']} (ID: ${ach['achievement_id']})',
+            );
+          }
           studentAchievements[studentId] = achievements;
         } catch (e) {
+          print('   ❌ Error loading achievements: $e');
           studentAchievements[studentId] = [];
         }
       }
+    } else {
+      print('⚠️ No existing attendance found for $normalizedDate');
     }
 
     // Preparar estado inicial de checkboxes
@@ -555,13 +573,15 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
   Future<void> _removeAchievementFromAttendance(
     String studentId,
     String achievementId,
+    String attendanceId,
   ) async {
     try {
       await Supabase.instance.client
           .from('student_achievements')
           .delete()
           .eq('student_id', studentId)
-          .eq('achievement_id', achievementId);
+          .eq('achievement_id', achievementId)
+          .eq('attendance_id', attendanceId);
     } catch (e) {
       print('Error removing achievement: $e');
       rethrow;
@@ -631,6 +651,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
             _removeAchievementFromAttendance(
               studentId,
               achievementId,
+              attendanceId,
             ).catchError((e) {
               print('Error removing achievement: $e');
               // Revertir cambio si falla

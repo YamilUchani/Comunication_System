@@ -109,7 +109,8 @@ router.get('/teacher/:teacherId', authenticateUser, async (req, res) => {
                 left_at,
                 duration_minutes,
                 user_id,
-                meeting:meetings(id, title)
+                meeting:meetings(id, title),
+                achievements:student_achievements(count)
             `)
             .order('meeting_date', { ascending: false });
 
