@@ -604,23 +604,53 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
 
           final achievementId = targetAchievement['id'];
 
+          // OPTIMISTIC UPDATE: Actualizar UI inmediatamente
+          final tempAchievement = {
+            'achievement_id': achievementId,
+            'achievements': targetAchievement,
+          };
+
           if (isSelected) {
-            // Quitar logro
-            await _removeAchievementFromAttendance(studentId, achievementId);
+            // Quitar logro de la UI inmediatamente
+            studentAchievements[studentId]?.removeWhere(
+              (a) => a['achievement_id'] == achievementId,
+            );
           } else {
-            // Agregar logro
-            await ApiService.assignAchievementsToAttendance(attendanceId, [
-              achievementId,
-            ]);
+            // Agregar logro a la UI inmediatamente
+            if (studentAchievements[studentId] == null) {
+              studentAchievements[studentId] = [];
+            }
+            studentAchievements[studentId]!.add(tempAchievement);
           }
 
-          // Recargar logros
-          final updatedAchievements = await _getAchievementsForAttendance(
-            attendanceId,
-          );
-          setState(() {
-            studentAchievements[studentId] = updatedAchievements;
-          });
+          // Actualizar UI
+          setState(() {});
+
+          // Actualizar en servidor en segundo plano
+          if (isSelected) {
+            _removeAchievementFromAttendance(
+              studentId,
+              achievementId,
+            ).catchError((e) {
+              print('Error removing achievement: $e');
+              // Revertir cambio si falla
+              if (studentAchievements[studentId] != null) {
+                studentAchievements[studentId]!.add(tempAchievement);
+                setState(() {});
+              }
+            });
+          } else {
+            ApiService.assignAchievementsToAttendance(attendanceId, [
+              achievementId,
+            ]).catchError((e) {
+              print('Error assigning achievement: $e');
+              // Revertir cambio si falla
+              studentAchievements[studentId]?.removeWhere(
+                (a) => a['achievement_id'] == achievementId,
+              );
+              setState(() {});
+            });
+          }
         } catch (e) {
           print('Error toggling achievement: $e');
         }
