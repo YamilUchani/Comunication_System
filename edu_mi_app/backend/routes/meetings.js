@@ -239,7 +239,7 @@ router.get('/active', authenticateUser, async (req, res) => {
                 created_at, 
                 expires_at, 
                 allowed_groups,
-                creator:profiles!meetings_creator_id_fkey(full_name)
+                creator:profiles(full_name)
             `)
             .eq('is_active', true)
             .gt('expires_at', new Date().toISOString())
