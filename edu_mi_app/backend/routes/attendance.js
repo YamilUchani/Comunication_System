@@ -279,8 +279,8 @@ router.put('/:attendanceId/achievements', authenticateUser, async (req, res) => 
         const { data: achievements, error: achievementsError } = await supabase
             .from('student_achievements')
             .upsert(achievementRecords, {
-                onConflict: 'student_id,achievement_id',
-                ignoreDuplicates: false
+                onConflict: 'student_id,achievement_id,attendance_id',
+                ignoreDuplicates: true
             })
             .select();
 
