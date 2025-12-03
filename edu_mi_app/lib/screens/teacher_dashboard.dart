@@ -279,10 +279,6 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
         leading: CircleAvatar(child: Text(student['full_name']?[0] ?? 'S')),
         title: Text(student['full_name'] ?? 'Estudiante'),
         subtitle: Text('Email: ${student['email']}'),
-        trailing: IconButton(
-          icon: const Icon(Icons.emoji_events, color: Colors.amber),
-          onPressed: () => _showGiveAchievementDialog(student),
-        ),
       ),
     );
   }
@@ -434,18 +430,21 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                         });
                       },
                     ),
-                    title: Text(student['full_name']),
-                    subtitle: achievements.isNotEmpty
-                        ? Wrap(
-                            spacing: 4,
-                            children: achievements.map((ach) {
-                              return Text(
+                    title: Row(
+                      children: [
+                        Expanded(child: Text(student['full_name'])),
+                        if (achievements.isNotEmpty)
+                          ...achievements.map((ach) {
+                            return Padding(
+                              padding: const EdgeInsets.only(left: 4),
+                              child: Text(
                                 ach['achievements']['icon'] ?? '🏆',
-                                style: const TextStyle(fontSize: 16),
-                              );
-                            }).toList(),
-                          )
-                        : null,
+                                style: const TextStyle(fontSize: 18),
+                              ),
+                            );
+                          }).toList(),
+                      ],
+                    ),
                   ),
                 );
               },
@@ -776,64 +775,4 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
     }
   }
 
-  void _showGiveAchievementDialog(dynamic student) async {
-    // Mantener funcionalidad individual por si acaso, aunque ahora se prefiere por fecha
-    try {
-      final achievements = await ApiService.getAchievements();
 
-      if (!mounted) return;
-
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Premiar a ${student['full_name']}'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: achievements.length,
-              itemBuilder: (context, index) {
-                final achievement = achievements[index];
-                return ListTile(
-                  leading: Text(
-                    achievement['icon'] ?? '🏆',
-                    style: const TextStyle(fontSize: 24),
-                  ),
-                  title: Text(achievement['name']),
-                  onTap: () async {
-                    try {
-                      await ApiService.unlockAchievement(
-                        student['user_id'],
-                        achievement['id'],
-                      );
-                      if (context.mounted) {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Logro "${achievement['name']}" asignado!',
-                            ),
-                          ),
-                        );
-                      }
-                    } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(
-                          context,
-                        ).showSnackBar(SnackBar(content: Text('Error: $e')));
-                      }
-                    }
-                  },
-                );
-              },
-            ),
-          ),
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error cargando logros: $e')));
-    }
-  }
-}
