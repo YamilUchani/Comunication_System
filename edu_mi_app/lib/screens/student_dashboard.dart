@@ -51,10 +51,10 @@ class _StudentDashboardState extends State<StudentDashboard> {
           _attendanceEvents.clear();
           if (_attendanceHistory != null) {
             for (var record in _attendanceHistory!) {
-              // Verificar que attendance_date no sea null
-              if (record['attendance_date'] == null) continue;
+              // Verificar que meeting_date no sea null
+              if (record['meeting_date'] == null) continue;
 
-              final date = DateTime.parse(record['attendance_date']);
+              final date = DateTime.parse(record['meeting_date']);
               final normalizedDate = DateTime(date.year, date.month, date.day);
 
               if (_attendanceEvents[normalizedDate] == null) {
