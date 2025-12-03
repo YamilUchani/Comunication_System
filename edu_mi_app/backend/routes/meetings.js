@@ -363,25 +363,25 @@ router.post('/:meetingId/end', authenticateUser, async (req, res) => {
             });
         }
 
-        // Marcar la reunión como inactiva
-        const { error: updateError } = await supabase
+        // Eliminar la reunión de la base de datos
+        const { error: deleteError } = await supabase
             .from('meetings')
-            .update({ is_active: false, ended_at: new Date().toISOString() })
+            .delete()
             .eq('id', meetingId);
 
-        if (updateError) {
-            console.error('❌ Error finalizando reunión:', updateError);
+        if (deleteError) {
+            console.error('❌ Error eliminando reunión:', deleteError);
             return res.status(500).json({
                 error: {
-                    message: 'Error al finalizar la reunión'
+                    message: 'Error al eliminar la reunión'
                 }
             });
         }
 
-        console.log(`✅ Reunión ${meetingId} finalizada por ${isAdmin ? 'admin' : 'creador'}`);
+        console.log(`✅ Reunión ${meetingId} eliminada por ${isAdmin ? 'admin' : 'creador'}`);
 
         res.json({
-            message: 'Reunión finalizada exitosamente'
+            message: 'Reunión eliminada exitosamente'
         });
     } catch (error) {
         console.error('💥 Error en /end:', error);
