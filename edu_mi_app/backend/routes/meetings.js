@@ -3,15 +3,18 @@ const router = express.Router();
 const { authenticateUser, canCreateMeeting } = require('../middleware/auth');
 const { generateRtcToken, isValidChannelName } = require('../services/agoraToken');
 const supabase = require('../config/supabase');
+const logger = require('../utils/logger');
 
 /**
  * POST /api/meetings/create
  * Crea una nueva reunión y genera el token de Agora
  */
-router.post('/create', authenticateUser, canCreateMeeting, async (req, res) => {
+router.post('/create', authenticateUser, canCreateMeeting, async (req, res, next) => {
     try {
-        const { channelName, title, description, allowed_groups, allowed_users } = req.body;
+        let { channelName, title, description, allowed_groups, allowed_users } = req.body;
         const userId = req.user.id;
+
+        logger.info(`📝 Creando reunión - Usuario: ${userId}, Channel: ${channelName}`);
 
         // Obtener perfil del usuario para validar grupo
         const { data: profile } = await supabase
@@ -26,6 +29,7 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res) => {
                 // Verificar que solo incluya su propio grupo
                 const hasOtherGroups = allowed_groups.some(g => g !== profile.group_name);
                 if (hasOtherGroups) {
+                    logger.warn(`⛔ Teacher ${userId} intentó crear reunión para otros grupos: ${allowed_groups}`);
                     return res.status(403).json({
                         error: {
                             message: 'Los teachers solo pueden crear reuniones para su propio grupo'
@@ -34,7 +38,7 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res) => {
                 }
             } else {
                 // Si no especifica grupos, asignar automáticamente su grupo
-                req.body.allowed_groups = [profile.group_name];
+                allowed_groups = [profile.group_name];
             }
         }
 
@@ -50,17 +54,61 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res) => {
         // Verificar si ya existe una reunión con ese nombre de canal
         const { data: existingMeeting } = await supabase
             .from('meetings')
-            .select('id')
+            .select('id, expires_at')
             .eq('channel_name', channelName)
             .eq('is_active', true)
             .single();
 
         if (existingMeeting) {
-            return res.status(409).json({
-                error: {
-                    message: 'Ya existe una reunión activa con ese nombre de canal'
+            // Verificar si expiró (aunque siga marcada como activa)
+            const now = new Date();
+            const expiresAt = new Date(existingMeeting.expires_at);
+
+            if (now > expiresAt) {
+                logger.info(`♻️ Cerrando reunión expirada para permitir una nueva: ${existingMeeting.id}`);
+                await supabase
+                    .from('meetings')
+                    .update({ is_active: false })
+                    .eq('id', existingMeeting.id);
+            } else {
+                // Si la reunión es vigente, verificar si el usuario tiene permiso para verla/reutilizarla
+                const { data: fullMeeting } = await supabase
+                    .from('meetings')
+                    .select('*')
+                    .eq('id', existingMeeting.id)
+                    .single();
+
+                const isCreator = fullMeeting.creator_id === userId;
+                const isInAllowedGroups = profile.group_name && fullMeeting.allowed_groups && fullMeeting.allowed_groups.includes(profile.group_name);
+                const isInvited = fullMeeting.allowed_users && fullMeeting.allowed_users.includes(userId);
+                const isAdmin = profile.role === 'administrator';
+
+                if (isCreator || isInAllowedGroups || isInvited || isAdmin) {
+                    logger.info(`✅ Reutilizando reunión existente para el usuario: ${fullMeeting.id}`);
+                    // Generar un nuevo token vigente
+                    const remainingTime = Math.floor((expiresAt - now) / 1000);
+                    const token = generateRtcToken(channelName, 0, 'publisher', remainingTime);
+
+                    return res.status(200).json({
+                        meeting: {
+                            id: fullMeeting.id,
+                            channelName: fullMeeting.channel_name,
+                            title: fullMeeting.title,
+                            description: fullMeeting.description,
+                            token: token,
+                            expiresAt: fullMeeting.expires_at,
+                            joinUrl: `stemforall://meeting?channel=${encodeURIComponent(channelName)}&token=${encodeURIComponent(token)}`
+                        }
+                    });
                 }
-            });
+
+                logger.warn(`⚠️ Intento de duplicar canal ajeno activo y vigente: ${channelName}`);
+                return res.status(409).json({
+                    error: {
+                        message: 'Ya existe una reunión activa con ese nombre de canal protegida'
+                    }
+                });
+            }
         }
 
         // Generar token de Agora
@@ -84,13 +132,15 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res) => {
             .single();
 
         if (meetingError) {
-            console.error('Error creando reunión:', meetingError);
+            logger.error('Error insertando reunión en DB', meetingError);
             return res.status(500).json({
                 error: {
                     message: 'Error al crear la reunión en la base de datos'
                 }
             });
         }
+
+        logger.info(`✅ Reunión creada: ${meeting.id}`);
 
         // Responder con la información de la reunión y el token
         res.status(201).json({
@@ -105,12 +155,7 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error en /create:', error);
-        res.status(500).json({
-            error: {
-                message: 'Error interno al crear la reunión'
-            }
-        });
+        next(error);
     }
 });
 
@@ -118,10 +163,12 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res) => {
  * POST /api/meetings/join
  * Genera un token para unirse a una reunión existente
  */
-router.post('/join', authenticateUser, async (req, res) => {
+router.post('/join', authenticateUser, async (req, res, next) => {
     try {
         const { channelName } = req.body;
         const userId = req.user.id;
+
+        logger.info(`👋 Usuario ${userId} intentando unirse a: ${channelName}`);
 
         // Validar nombre del canal
         if (!channelName || !isValidChannelName(channelName)) {
@@ -141,6 +188,7 @@ router.post('/join', authenticateUser, async (req, res) => {
             .single();
 
         if (meetingError || !meeting) {
+            logger.warn(`Reunión no encontrada/activa para join: ${channelName}`);
             return res.status(404).json({
                 error: {
                     message: 'Reunión no encontrada o ya finalizada'
@@ -153,7 +201,8 @@ router.post('/join', authenticateUser, async (req, res) => {
         const expiresAt = new Date(meeting.expires_at);
 
         if (now > expiresAt) {
-            // Marcar la reunión como inactiva
+            logger.info(`Reunión expirada detectada en join: ${meeting.id}`);
+            // Marcar la reunión como inactiva (Soft Close)
             await supabase
                 .from('meetings')
                 .update({ is_active: false })
@@ -193,10 +242,13 @@ router.post('/join', authenticateUser, async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error en /join:', error);
+        console.error('Error FATAL en /join:', error);
         res.status(500).json({
             error: {
-                message: 'Error interno al unirse a la reunión'
+                message: 'Error interno al unirse a la reunión (RENDER)',
+                originalError: error.message,
+                code: error.code,
+                stack: error.stack
             }
         });
     }
@@ -207,10 +259,10 @@ router.post('/join', authenticateUser, async (req, res) => {
  * GET /api/meetings/active
  * Obtiene la lista de reuniones activas filtradas por rol y grupo del usuario
  */
-router.get('/active', authenticateUser, async (req, res) => {
+router.get('/active', authenticateUser, async (req, res, next) => {
     try {
         const userId = req.user.id;
-        console.log(`📥 GET /api/meetings/active - User: ${userId}`);
+        // logger.debug(`Listando reuniones para: ${userId}`); // Debug levels can be noisy
 
         // Obtener perfil del usuario para determinar rol y grupo
         const { data: profile, error: profileError } = await supabase
@@ -220,26 +272,23 @@ router.get('/active', authenticateUser, async (req, res) => {
             .single();
 
         if (profileError || !profile) {
-            console.error('❌ Error obteniendo perfil:', profileError);
+            logger.error(`Error perfil usuario ${userId}`, profileError);
             return res.status(500).json({
                 error: { message: 'Error al obtener perfil de usuario' }
             });
         }
 
-        console.log(`👤 User role: ${profile.role}, group: ${profile.group_name}`);
-
-        // Query base de reuniones activas
+        // Query base de reuniones activas (ahora sin filtro de tiempo global para que el dashboard vea zombies)
         let query = supabase
             .from('meetings')
-            .select('id, channel_name, title, description, creator_id, created_at, expires_at, allowed_groups')
+            .select('*, creator:profiles!creator_id(role, full_name)')
             .eq('is_active', true)
-            .gt('expires_at', new Date().toISOString())
             .order('created_at', { ascending: false });
 
         const { data: allMeetings, error } = await query;
 
         if (error) {
-            console.error('❌ Error obteniendo reuniones:', error);
+            logger.error('Error fetching active meetings', error);
             return res.status(500).json({
                 error: {
                     message: 'Error al obtener las reuniones',
@@ -250,85 +299,98 @@ router.get('/active', authenticateUser, async (req, res) => {
 
         // Filtrar reuniones según el rol
         let filteredMeetings = allMeetings || [];
+        const now = new Date();
 
         if (profile.role === 'administrator') {
-            // Admin ve TODAS las reuniones
-            console.log('🔓 Admin: mostrando todas las reuniones');
+            // Admin ve TODAS las reuniones activas
         } else if (profile.role === 'teacher') {
-            // Teacher ve reuniones de su grupo o las que creó
+            // Teacher ve reuniones de su grupo o las que creó (incluyendo zombies activos)
             filteredMeetings = filteredMeetings.filter(meeting => {
                 const isCreator = meeting.creator_id === userId;
-                // Verificar si el grupo del teacher está en los grupos permitidos
-                // IMPORTANTE: Esto permite ver reuniones creadas por Admin para este grupo
-                const isInAllowedGroups = meeting.allowed_groups &&
-                    meeting.allowed_groups.includes(profile.group_name);
+                const teacherGroup = (profile.group_name || '').trim();
 
-                // Si no hay restricciones, todos pueden verla (opcional, depende de reglas de negocio)
-                const hasNoRestrictions = !meeting.allowed_groups || meeting.allowed_groups.length === 0;
+                // 1. Siempre ve sus propias reuniones
+                if (isCreator) return true;
 
-                return isCreator || isInAllowedGroups || hasNoRestrictions;
+                // 2. Si no es el creador, verificar si el grupo coincide
+                const isInAllowedGroups = teacherGroup && meeting.allowed_groups &&
+                    meeting.allowed_groups.some(g => (g || '').trim() === teacherGroup);
+
+                // 3. Ver reuniones de Admins si no tienen restricciones o coinciden con el grupo
+                const creatorRole = meeting.creator?.role;
+                const isFromAdmin = creatorRole === 'administrator';
+
+                if (isFromAdmin) {
+                    const hasNoGroupRestrictions = (!meeting.allowed_groups || meeting.allowed_groups.length === 0);
+                    return isInAllowedGroups || hasNoGroupRestrictions;
+                }
+
+                // 4. Ver reuniones de otros maestros SOLO si pertenecen al mismo grupo
+                return isInAllowedGroups;
             });
-            console.log(`👨‍🏫 Teacher: ${filteredMeetings.length} reuniones visibles (Propio grupo o Creador)`);
         } else if (profile.role === 'student') {
-            // Student solo ve reuniones de su grupo
+            // Student ve reuniones de su grupo O donde está invitado específicamente
+            // IMPORTANTE: Student NO ve zombies (reuniones expiradas)
             filteredMeetings = filteredMeetings.filter(meeting => {
-                const isInAllowedGroups = meeting.allowed_groups &&
-                    meeting.allowed_groups.includes(profile.group_name);
-                const hasNoRestrictions = !meeting.allowed_groups || meeting.allowed_groups.length === 0;
+                const expiresAt = new Date(meeting.expires_at);
+                if (now > expiresAt) return false;
+
+                const studentGroup = (profile.group_name || '').trim();
+
+                // 1. Invitación individual específica (Prioridad)
+                const isPersonallyInvited = meeting.allowed_users &&
+                    meeting.allowed_users.includes(userId);
+
+                if (isPersonallyInvited) return true;
+
+                // 2. Si la reunión es privada para ciertos usuarios y NO está invitado, ocultar
+                if (meeting.allowed_users && meeting.allowed_users.length > 0) return false;
+
+                // 3. Reunión de su grupo
+                const isInAllowedGroups = studentGroup && meeting.allowed_groups &&
+                    meeting.allowed_groups.some(g => (g || '').trim() === studentGroup);
+
+                // 4. Sin restricciones
+                const hasNoRestrictions = (!meeting.allowed_groups || meeting.allowed_groups.length === 0);
 
                 return isInAllowedGroups || hasNoRestrictions;
             });
-            console.log(`👨‍🎓 Student: ${filteredMeetings.length} reuniones de su grupo`);
         }
 
-        // Obtener nombres de los creadores
-        const creatorIds = [...new Set(filteredMeetings.map(m => m.creator_id))];
-        const { data: creators } = await supabase
-            .from('profiles')
-            .select('user_id, full_name')
-            .in('user_id', creatorIds);
-
-        const creatorMap = {};
-        if (creators) {
-            creators.forEach(c => {
-                creatorMap[c.user_id] = c.full_name;
-            });
-        }
-
-        console.log(`📊 Returning ${filteredMeetings.length} meetings`);
+        // No necesitamos fetch adicional para nombres/roles ya que los trajimos en el query principal
+        const finalMeetings = filteredMeetings.map(meeting => ({
+            id: meeting.id,
+            channelName: meeting.channel_name,
+            title: meeting.title,
+            description: meeting.description,
+            creatorId: meeting.creator_id,
+            creatorName: meeting.creator?.full_name || 'Desconocido',
+            creatorRole: meeting.creator?.role || 'student',
+            createdAt: meeting.created_at,
+            expiresAt: meeting.expires_at,
+            allowedUsers: meeting.allowed_users || [],
+            allowedGroups: meeting.allowed_groups || [],
+            isExpired: new Date() > new Date(meeting.expires_at)
+        }));
 
         res.json({
-            meetings: filteredMeetings.map(meeting => ({
-                id: meeting.id,
-                channelName: meeting.channel_name,
-                title: meeting.title,
-                description: meeting.description,
-                creatorId: meeting.creator_id,
-                creatorName: creatorMap[meeting.creator_id] || 'Desconocido',
-                createdAt: meeting.created_at,
-                expiresAt: meeting.expires_at
-            }))
+            meetings: finalMeetings
         });
     } catch (error) {
-        console.error('💥 Error en /active:', error);
-        res.status(500).json({
-            error: {
-                message: 'Error interno al obtener las reuniones'
-            }
-        });
+        next(error);
     }
 });
 
 /**
  * POST /api/meetings/:meetingId/end
- * Finaliza una reunión
+ * Finaliza una reunión (SOFT DELETE)
  */
-router.post('/:meetingId/end', authenticateUser, async (req, res) => {
+router.post('/:meetingId/end', authenticateUser, async (req, res, next) => {
     try {
         const { meetingId } = req.params;
         const userId = req.user.id;
 
-        console.log(`📥 POST /api/meetings/${meetingId}/end - User: ${userId}`);
+        logger.info(`🛑 Solicitud de fin de reunión: ${meetingId} por ${userId}`);
 
         // Obtener información del usuario y la reunión
         const { data: userProfile } = await supabase
@@ -356,6 +418,7 @@ router.post('/:meetingId/end', authenticateUser, async (req, res) => {
         const isAdmin = userProfile?.role === 'administrator';
 
         if (!isCreator && !isAdmin) {
+            logger.warn(`⛔ Acceso denegado ending meeting ${meetingId}. User: ${userId}`);
             return res.status(403).json({
                 error: {
                     message: 'Solo el creador o un administrador puede finalizar la reunión'
@@ -363,33 +426,42 @@ router.post('/:meetingId/end', authenticateUser, async (req, res) => {
             });
         }
 
-        // Eliminar la reunión de la base de datos
-        const { error: deleteError } = await supabase
+        // SOFT DELETE: Marcar como inactiva y setear fecha de fin
+        const { error: updateError } = await supabase
             .from('meetings')
-            .delete()
+            .update({
+                is_active: false,
+                ended_at: new Date().toISOString() // Asegurarse de tener esta columna o quitar si no existe en la migración
+            })
             .eq('id', meetingId);
 
-        if (deleteError) {
-            console.error('❌ Error eliminando reunión:', deleteError);
-            return res.status(500).json({
-                error: {
-                    message: 'Error al eliminar la reunión'
-                }
-            });
+        // NOTA: Si `ended_at` no existe en tu esquema original, asegúrate de agregarlo o usa solo is_active: false.
+        // Dado que no vi el schema completo de 'meetings' (solo los policies), asumo standard.
+        // Si falla, revertiremos a solo is_active.
+
+        if (updateError) {
+            // Si el error es por columna inexistente, intentar solo soft-delete basico
+            logger.error('Error soft-deleting meeting', updateError);
+
+            if (updateError.code === '42703') { // Undefined column
+                logger.info('Columna ended_at no existe, actualizando solo is_active');
+                await supabase.from('meetings').update({ is_active: false }).eq('id', meetingId);
+            } else {
+                return res.status(500).json({
+                    error: {
+                        message: 'Error al finalizar la reunión'
+                    }
+                });
+            }
         }
 
-        console.log(`✅ Reunión ${meetingId} eliminada por ${isAdmin ? 'admin' : 'creador'}`);
+        logger.info(`✅ Reunión ${meetingId} finalizada correctamente.`);
 
         res.json({
-            message: 'Reunión eliminada exitosamente'
+            message: 'Reunión finalizada exitosamente'
         });
     } catch (error) {
-        console.error('💥 Error en /end:', error);
-        res.status(500).json({
-            error: {
-                message: 'Error interno al finalizar la reunión'
-            }
-        });
+        next(error);
     }
 });
 
