@@ -11,7 +11,7 @@ const logger = require('../utils/logger');
  */
 router.post('/create', authenticateUser, canCreateMeeting, async (req, res, next) => {
     try {
-        let { channelName, title, description, allowed_groups, allowed_users } = req.body;
+        const { channelName, title, description, allowed_groups, allowed_users } = req.body;
         const userId = req.user.id;
 
         logger.info(`📝 Creando reunión - Usuario: ${userId}, Channel: ${channelName}`);
@@ -38,7 +38,7 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res, next
                 }
             } else {
                 // Si no especifica grupos, asignar automáticamente su grupo
-                allowed_groups = [profile.group_name];
+                req.body.allowed_groups = [profile.group_name];
             }
         }
 
@@ -54,61 +54,18 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res, next
         // Verificar si ya existe una reunión con ese nombre de canal
         const { data: existingMeeting } = await supabase
             .from('meetings')
-            .select('id, expires_at')
+            .select('id')
             .eq('channel_name', channelName)
             .eq('is_active', true)
             .single();
 
         if (existingMeeting) {
-            // Verificar si expiró (aunque siga marcada como activa)
-            const now = new Date();
-            const expiresAt = new Date(existingMeeting.expires_at);
-
-            if (now > expiresAt) {
-                logger.info(`♻️ Cerrando reunión expirada para permitir una nueva: ${existingMeeting.id}`);
-                await supabase
-                    .from('meetings')
-                    .update({ is_active: false })
-                    .eq('id', existingMeeting.id);
-            } else {
-                // Si la reunión es vigente, verificar si el usuario tiene permiso para verla/reutilizarla
-                const { data: fullMeeting } = await supabase
-                    .from('meetings')
-                    .select('*')
-                    .eq('id', existingMeeting.id)
-                    .single();
-
-                const isCreator = fullMeeting.creator_id === userId;
-                const isInAllowedGroups = profile.group_name && fullMeeting.allowed_groups && fullMeeting.allowed_groups.includes(profile.group_name);
-                const isInvited = fullMeeting.allowed_users && fullMeeting.allowed_users.includes(userId);
-                const isAdmin = profile.role === 'administrator';
-
-                if (isCreator || isInAllowedGroups || isInvited || isAdmin) {
-                    logger.info(`✅ Reutilizando reunión existente para el usuario: ${fullMeeting.id}`);
-                    // Generar un nuevo token vigente
-                    const remainingTime = Math.floor((expiresAt - now) / 1000);
-                    const token = generateRtcToken(channelName, 0, 'publisher', remainingTime);
-
-                    return res.status(200).json({
-                        meeting: {
-                            id: fullMeeting.id,
-                            channelName: fullMeeting.channel_name,
-                            title: fullMeeting.title,
-                            description: fullMeeting.description,
-                            token: token,
-                            expiresAt: fullMeeting.expires_at,
-                            joinUrl: `stemforall://meeting?channel=${encodeURIComponent(channelName)}&token=${encodeURIComponent(token)}`
-                        }
-                    });
+            logger.warn(`⚠️ Intento de duplicar canal activo: ${channelName}`);
+            return res.status(409).json({
+                error: {
+                    message: 'Ya existe una reunión activa con ese nombre de canal'
                 }
-
-                logger.warn(`⚠️ Intento de duplicar canal ajeno activo y vigente: ${channelName}`);
-                return res.status(409).json({
-                    error: {
-                        message: 'Ya existe una reunión activa con ese nombre de canal protegida'
-                    }
-                });
-            }
+            });
         }
 
         // Generar token de Agora
@@ -242,15 +199,7 @@ router.post('/join', authenticateUser, async (req, res, next) => {
             }
         });
     } catch (error) {
-        console.error('Error FATAL en /join:', error);
-        res.status(500).json({
-            error: {
-                message: 'Error interno al unirse a la reunión (RENDER)',
-                originalError: error.message,
-                code: error.code,
-                stack: error.stack
-            }
-        });
+        next(error);
     }
 });
 
@@ -278,11 +227,12 @@ router.get('/active', authenticateUser, async (req, res, next) => {
             });
         }
 
-        // Query base de reuniones activas (ahora sin filtro de tiempo global para que el dashboard vea zombies)
+        // Query base de reuniones activas
         let query = supabase
             .from('meetings')
-            .select('*, creator:profiles!creator_id(role, full_name)')
+            .select('id, channel_name, title, description, creator_id, created_at, expires_at, allowed_groups, allowed_users')
             .eq('is_active', true)
+            .gt('expires_at', new Date().toISOString())
             .order('created_at', { ascending: false });
 
         const { data: allMeetings, error } = await query;
@@ -299,44 +249,23 @@ router.get('/active', authenticateUser, async (req, res, next) => {
 
         // Filtrar reuniones según el rol
         let filteredMeetings = allMeetings || [];
-        const now = new Date();
 
         if (profile.role === 'administrator') {
-            // Admin ve TODAS las reuniones activas
+            // Admin ve TODAS las reuniones
         } else if (profile.role === 'teacher') {
-            // Teacher ve reuniones de su grupo o las que creó (incluyendo zombies activos)
+            // Teacher ve reuniones de su grupo o las que creó
             filteredMeetings = filteredMeetings.filter(meeting => {
                 const isCreator = meeting.creator_id === userId;
-                const teacherGroup = (profile.group_name || '').trim();
+                const isInAllowedGroups = meeting.allowed_groups &&
+                    meeting.allowed_groups.includes(profile.group_name);
+                const hasNoRestrictions = (!meeting.allowed_groups || meeting.allowed_groups.length === 0) &&
+                    (!meeting.allowed_users || meeting.allowed_users.length === 0);
 
-                // 1. Siempre ve sus propias reuniones
-                if (isCreator) return true;
-
-                // 2. Si no es el creador, verificar si el grupo coincide
-                const isInAllowedGroups = teacherGroup && meeting.allowed_groups &&
-                    meeting.allowed_groups.some(g => (g || '').trim() === teacherGroup);
-
-                // 3. Ver reuniones de Admins si no tienen restricciones o coinciden con el grupo
-                const creatorRole = meeting.creator?.role;
-                const isFromAdmin = creatorRole === 'administrator';
-
-                if (isFromAdmin) {
-                    const hasNoGroupRestrictions = (!meeting.allowed_groups || meeting.allowed_groups.length === 0);
-                    return isInAllowedGroups || hasNoGroupRestrictions;
-                }
-
-                // 4. Ver reuniones de otros maestros SOLO si pertenecen al mismo grupo
-                return isInAllowedGroups;
+                return isCreator || isInAllowedGroups || hasNoRestrictions;
             });
         } else if (profile.role === 'student') {
             // Student ve reuniones de su grupo O donde está invitado específicamente
-            // IMPORTANTE: Student NO ve zombies (reuniones expiradas)
             filteredMeetings = filteredMeetings.filter(meeting => {
-                const expiresAt = new Date(meeting.expires_at);
-                if (now > expiresAt) return false;
-
-                const studentGroup = (profile.group_name || '').trim();
-
                 // 1. Invitación individual específica (Prioridad)
                 const isPersonallyInvited = meeting.allowed_users &&
                     meeting.allowed_users.includes(userId);
@@ -347,8 +276,8 @@ router.get('/active', authenticateUser, async (req, res, next) => {
                 if (meeting.allowed_users && meeting.allowed_users.length > 0) return false;
 
                 // 3. Reunión de su grupo
-                const isInAllowedGroups = studentGroup && meeting.allowed_groups &&
-                    meeting.allowed_groups.some(g => (g || '').trim() === studentGroup);
+                const isInAllowedGroups = meeting.allowed_groups &&
+                    meeting.allowed_groups.includes(profile.group_name);
 
                 // 4. Sin restricciones
                 const hasNoRestrictions = (!meeting.allowed_groups || meeting.allowed_groups.length === 0);
@@ -357,24 +286,35 @@ router.get('/active', authenticateUser, async (req, res, next) => {
             });
         }
 
-        // No necesitamos fetch adicional para nombres/roles ya que los trajimos en el query principal
-        const finalMeetings = filteredMeetings.map(meeting => ({
-            id: meeting.id,
-            channelName: meeting.channel_name,
-            title: meeting.title,
-            description: meeting.description,
-            creatorId: meeting.creator_id,
-            creatorName: meeting.creator?.full_name || 'Desconocido',
-            creatorRole: meeting.creator?.role || 'student',
-            createdAt: meeting.created_at,
-            expiresAt: meeting.expires_at,
-            allowedUsers: meeting.allowed_users || [],
-            allowedGroups: meeting.allowed_groups || [],
-            isExpired: new Date() > new Date(meeting.expires_at)
-        }));
+        // Obtener nombres de los creadores y sus roles
+        const creatorIds = [...new Set(filteredMeetings.map(m => m.creator_id))];
+        const { data: creators } = await supabase
+            .from('profiles')
+            .select('user_id, full_name, role')
+            .in('user_id', creatorIds);
+
+        const creatorMap = {};
+        const roleMap = {}; // Mapa para guardar los roles
+        if (creators) {
+            creators.forEach(c => {
+                creatorMap[c.user_id] = c.full_name;
+                roleMap[c.user_id] = c.role; // Guardar el rol
+            });
+        }
 
         res.json({
-            meetings: finalMeetings
+            meetings: filteredMeetings.map(meeting => ({
+                id: meeting.id,
+                channelName: meeting.channel_name,
+                title: meeting.title,
+                description: meeting.description,
+                creatorId: meeting.creator_id,
+                creatorName: creatorMap[meeting.creator_id] || 'Desconocido',
+                creatorRole: roleMap[meeting.creator_id] || 'student', // Enviar el rol del creador
+                createdAt: meeting.created_at,
+                expiresAt: meeting.expires_at,
+                allowedUsers: meeting.allowed_users || []
+            }))
         });
     } catch (error) {
         next(error);
