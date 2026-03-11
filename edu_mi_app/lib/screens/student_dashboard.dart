@@ -218,18 +218,16 @@ class _StudentDashboardState extends State<StudentDashboard> {
         title: Text(meeting['title']),
         subtitle: Text('Profesor: ${meeting['creatorName'] ?? 'Maestro'}'),
         trailing: ElevatedButton(
-          onPressed: () async {
-            // Ir a la sala de espera (pantalla secundaria)
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                fullscreenDialog: true,
-                builder: (_) => WaitingRoomScreen(
-                  channelName: meeting['channelName'],
-                  meetingTitle: meeting['title'],
-                  creatorName: meeting['creatorName'] ?? 'Maestro',
-                  meetingId: meeting['id'],
-                ),
+          onPressed: () {
+            // Abrir Sala de Espera como diálogo (ventana secundaria flotante)
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) => WaitingRoomScreen(
+                channelName: meeting['channelName'],
+                meetingTitle: meeting['title'],
+                creatorName: meeting['creatorName'] ?? 'Maestro',
+                meetingId: meeting['id'],
               ),
             );
           },
