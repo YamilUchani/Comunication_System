@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../services/api_service.dart';
 import '../video_call/video_call_screen.dart';
+import 'waiting_room_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -217,41 +218,19 @@ class _StudentDashboardState extends State<StudentDashboard> {
         title: Text(meeting['title']),
         subtitle: Text('Profesor: ${meeting['creatorName'] ?? 'Maestro'}'),
         trailing: ElevatedButton(
-          onPressed: () async {
-            try {
-              final joinData = await ApiService.joinMeeting(
-                meeting['channelName'],
-              );
-
-              if (context.mounted) {
-                final user = Supabase.instance.client.auth.currentUser;
-                final profile = await Supabase.instance.client
-                    .from('profiles')
-                    .select('full_name')
-                    .eq('user_id', user!.id)
-                    .single();
-
-                final userName = profile['full_name'] ?? 'Estudiante';
-
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => VideoCallScreen(
-                      channelName: joinData['channelName'],
-                      token: joinData['token'],
-                      userName: userName,
-                      meetingId: joinData['id'], // 🆔 Pasar ID de la reunión
-                    ),
-                  ),
-                );
-              }
-            } catch (e) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text('Error al unirse: $e')));
-              }
-            }
+          onPressed: () {
+            // Ir a la sala de espera
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => WaitingRoomScreen(
+                  channelName: meeting['channelName'],
+                  meetingTitle: meeting['title'],
+                  creatorName: meeting['creatorName'] ?? 'Maestro',
+                  meetingId: meeting['id'],
+                ),
+              ),
+            );
           },
           child: const Text('Unirse'),
         ),
