@@ -405,4 +405,117 @@ router.post('/:meetingId/end', authenticateUser, async (req, res, next) => {
     }
 });
 
+/**
+ * POST /api/meetings/:meetingId/heartbeat
+ * Registra que el usuario sigue activo en la llamada (heartbeat)
+ */
+router.post('/:meetingId/heartbeat', authenticateUser, async (req, res, next) => {
+    try {
+        const { meetingId } = req.params;
+        const userId = req.user.id;
+
+        // Actualizar el timestamp del último heartbeat
+        const { error } = await supabase
+            .from('meeting_participants')
+            .update({
+                last_heartbeat: new Date().toISOString()
+            })
+            .eq('meeting_id', meetingId)
+            .eq('user_id', userId);
+
+        if (error) {
+            logger.warn(`Error updating heartbeat for ${userId}`, error);
+            return res.status(500).json({
+                error: { message: 'Error al actualizar heartbeat' }
+            });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * POST /api/meetings/:meetingId/leave
+ * Marca que el usuario abandonó la llamada correctamente
+ */
+router.post('/:meetingId/leave', authenticateUser, async (req, res, next) => {
+    try {
+        const { meetingId } = req.params;
+        const userId = req.user.id;
+
+        logger.info(`👋 Usuario ${userId} abandonando reunión ${meetingId}`);
+
+        // Marcar como left_at
+        const { error } = await supabase
+            .from('meeting_participants')
+            .update({
+                left_at: new Date().toISOString()
+            })
+            .eq('meeting_id', meetingId)
+            .eq('user_id', userId);
+
+        if (error) {
+            logger.warn(`Error marking user as left`, error);
+            return res.status(500).json({
+                error: { message: 'Error al registrar salida' }
+            });
+        }
+
+        logger.info(`✅ Usuario ${userId} marcado como left en reunión ${meetingId}`);
+        res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * POST /api/meetings/cleanup-inactive
+ * Limpia participantes inactivos (sin heartbeat en los últimos 15 segundos)
+ * Puede ser llamado periódicamente por el backend o cuando sea necesario
+ */
+router.post('/cleanup-inactive', authenticateUser, async (req, res, next) => {
+    try {
+        const inactiveThreshold = new Date(Date.now() - 15 * 1000); // 15 segundos atrás
+
+        logger.info(`🧹 Limpiando participantes inactivos desde ${inactiveThreshold}`);
+
+        const { data: inactive, error: fetchError } = await supabase
+            .from('meeting_participants')
+            .select('id, user_id, meeting_id')
+            .is('left_at', null) // Solo los que no han salido explícitamente
+            .lt('last_heartbeat', inactiveThreshold.toISOString());
+
+        if (fetchError) {
+            logger.error('Error fetching inactive participants', fetchError);
+            return res.status(500).json({
+                error: { message: 'Error al obtener participantes inactivos' }
+            });
+        }
+
+        if (!inactive || inactive.length === 0) {
+            return res.json({ cleaned: 0 });
+        }
+
+        // Marcar como left_at para cada uno
+        const { error } = await supabase
+            .from('meeting_participants')
+            .update({ left_at: new Date().toISOString() })
+            .in('id', inactive.map(p => p.id));
+
+        if (error) {
+            logger.error('Error marking inactive participants as left', error);
+            return res.status(500).json({
+                error: { message: 'Error al marcar participantes como inactivos' }
+            });
+        }
+
+        logger.info(`✅ Limpiados ${inactive.length} participantes inactivos`);
+        res.json({ cleaned: inactive.length });
+    } catch (error) {
+        next(error);
+    }
+});
+
 module.exports = router;

@@ -1,7 +1,9 @@
 // Archivo: video_call_screen.dart
 
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'video_call_controller.dart';
 import 'video_widgets.dart';
 import 'controls_bar.dart';
@@ -13,19 +15,24 @@ class VideoCallScreen extends StatefulWidget {
   final String channelName;
   final String token;
   final String userName;
+  final String? meetingId; // 🆔 ID de la reunión para heartbeat
 
   const VideoCallScreen({
     super.key,
     required this.channelName,
     required this.token,
     required this.userName,
+    this.uid,
+    this.meetingId,
   });
+
+  final int? uid;
 
   @override
   _VideoCallScreenState createState() => _VideoCallScreenState();
 }
 
-class _VideoCallScreenState extends State<VideoCallScreen> {
+class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingObserver {
   late final VideoCallController controller;
   ScreenShareController? screenController;
   late ChatController chatController;
@@ -36,11 +43,78 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     controller = VideoCallController(
       channelName: widget.channelName,
       token: widget.token,
+      uid: widget.uid,
+      meetingId: widget.meetingId,
     );
     _initAgora();
+    
+    // 🔔 Escuchar cambios en participantes de la reunión
+    if (widget.meetingId != null) {
+      _setupRealtimeListener();
+    }
+  }
+
+  void _setupRealtimeListener() {
+    print('🔔 Iniciando Realtime listener para cambios de participantes');
+    
+    Supabase.instance.client
+        .from('meeting_participants')
+        .on(RealtimeListenTypes.postgresChanges,
+            SupabaseStreamEvent(
+              event: '*',
+              schema: 'public',
+              table: 'meeting_participants',
+              filter: 'meeting_id=eq.${widget.meetingId}',
+            ), (payload) {
+      print('📨 Cambio en participantes: ${payload.eventType} - ${payload.newRecord}');
+      
+      // Si alguien actualiza left_at (se fue), notificar
+      final newRecord = payload.newRecord;
+      if (newRecord != null && newRecord['left_at'] != null) {
+        final userId = newRecord['user_id'];
+        // Si el usuario que se fue no somos nosotros, notificar
+        final currentUser = Supabase.instance.client.auth.currentUser;
+        if (currentUser != null && userId != currentUser.id) {
+          print('🚪 ¡El otro usuario se fue!');
+          controller.otherUserLeft.value = true;
+          _showUserLeftDialog();
+        }
+      }
+    }).subscribe();
+  }
+
+  void _showUserLeftDialog() {
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Llamada Finalizada'),
+          content: const Text('El otro usuario ha abandonado la llamada.'),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context); // Cerrar diálogo
+                Navigator.pop(context); // Salir de la llamada
+              },
+              child: const Text('Aceptar'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<AppExitResponse> didRequestAppExit() async {
+    print('🚪 Saliendo de la videollamada desde el sistema...');
+    // Notificar a Agora que nos vamos para que no deje el video congelado a los demás
+    await controller.leaveAndDispose();
+    return AppExitResponse.exit;
   }
 
   Future<void> _initAgora() async {
@@ -116,7 +190,24 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         valueListenable: controller.localUserJoined,
         builder: (context, joined, _) {
           if (!joined) {
-            return const Center(child: CircularProgressIndicator());
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CircularProgressIndicator(color: Colors.teal),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Conectando a: ${widget.channelName}',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Iniciando motor de Agora...',
+                    style: TextStyle(color: Colors.white38, fontSize: 12),
+                  ),
+                ],
+              ),
+            );
           }
           return Stack(
             children: [
@@ -148,6 +239,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     controller.dispose();
     screenController?.dispose();
     chatController.dispose();

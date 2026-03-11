@@ -240,6 +240,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                       channelName: joinData['channelName'],
                       token: joinData['token'],
                       userName: userName,
+                      meetingId: joinData['id'], // 🆔 Pasar ID de la reunión
                     ),
                   ),
                 );

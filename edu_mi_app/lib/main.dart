@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -13,13 +14,16 @@ import 'screens/teacher_dashboard.dart';
 import 'screens/student_dashboard.dart';
 import 'screens/waiting_for_assignment_screen.dart';
 import 'services/windows_service.dart';
+import 'services/window_service.dart';
 import 'services/deep_link_service.dart';
+import 'video_call/video_call_screen.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 bool _isAuthInProgress = false;
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  print('DEBUG: Recibidos args: $args');
 
   try {
     await dotenv.load(fileName: '.env');
@@ -27,13 +31,57 @@ Future<void> main(List<String> args) async {
     print('⚠️ Warning: .env file not found. Make sure to create it.');
   }
 
+  // --- LÓGICA DE VENTANAS SECUNDARIAS ---
+  if (args.contains('--secondary')) {
+    print('🧩 [CHILD PROCESS] Detectado modo secundario. Saltando Supabase...');
+    
+    final channel = _getArgValue(args, 'channel');
+    final token = _getArgValue(args, 'token');
+    final userName = _getArgValue(args, 'user') ?? 'Maestro';
+    final uidStr = _getArgValue(args, 'uid');
+    final uid = uidStr != null ? int.tryParse(uidStr) : null;
+    final meetingId = _getArgValue(args, 'meetingId'); // 🆔 Obtener ID de la reunión
+
+    final appId = dotenv.env['AGORA_APP_ID'] ?? '';
+    print('   - Agora App ID cargado: ${appId.isNotEmpty}');
+
+      if (channel != null && token != null) {
+        print('🎬 [CHILD PROCESS] Preparando VideoCallScreen...');
+        print('   - Canal: $channel, UID: $uid, MeetingID: $meetingId');
+
+        try {
+          runApp(MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: ThemeData(
+              primarySwatch: Colors.teal,
+              scaffoldBackgroundColor: Colors.black,
+            ),
+            home: VideoCallScreen(
+              channelName: channel,
+              token: token,
+              userName: userName,
+              uid: uid,
+              meetingId: meetingId, // 🆔 Pasar ID de la reunión
+            ),
+          ));
+          return;
+        } catch (e, stack) {
+          print('❌ [CHILD PROCESS] Error FATAL al arrancar: $e');
+          print(stack);
+          exit(1);
+        }
+      } else {
+      print('❌ [CHILD PROCESS] Faltan argumentos críticos (channel/token)');
+      exit(1);
+    }
+  }
+
+  // --- CONFIGURACIÓN PARA VENTANA PRINCIPAL ---
   final url = dotenv.env['SUPABASE_URL'];
   final anonKey = dotenv.env['SUPABASE_ANON_KEY'];
 
   if (url == null || anonKey == null) {
-    print(
-      '❌ Error: Missing environment variables SUPABASE_URL or SUPABASE_ANON_KEY',
-    );
+    print('❌ Error: Missing environment variables SUPABASE_URL or SUPABASE_ANON_KEY');
     return;
   }
 
@@ -95,6 +143,16 @@ Future<void> main(List<String> args) async {
   });
 
   runApp(const MyApp());
+}
+
+String? _getArgValue(List<String> args, String name) {
+  final prefix = '--$name=';
+  for (var arg in args) {
+    if (arg.startsWith(prefix)) {
+      return arg.substring(prefix.length);
+    }
+  }
+  return null;
 }
 
 Future<String> _nextRoute() async {
@@ -159,8 +217,32 @@ Future<String> _nextRoute() async {
   }
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  Future<AppExitResponse> didRequestAppExit() async {
+    // Cuando la ventana principal se cierra, matamos a los hijos
+    WindowService().terminateSecondaryWindows();
+    return AppExitResponse.exit;
+  }
 
   Future<String?> _getUserName() async {
     final user = Supabase.instance.client.auth.currentUser;

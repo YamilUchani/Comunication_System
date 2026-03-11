@@ -655,6 +655,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
               channelName: meeting['channelName'],
               token: meetingData['token'],
               userName: userName,
+              meetingId: meetingData['id'], // 🆔 Pasar ID de la reunión
             ),
           ),
         );
@@ -939,6 +940,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                           channelName: meeting['channelName'],
                           token: meeting['token'],
                           userName: userName,
+                          meetingId: meeting['id'], // 🆔 Pasar ID de la reunión
                         ),
                       ),
                     );

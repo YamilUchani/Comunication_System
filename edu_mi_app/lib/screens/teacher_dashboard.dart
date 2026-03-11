@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
-import '../video_call/video_call_screen.dart';
+import '../services/window_service.dart';
 
 class TeacherDashboard extends StatefulWidget {
   const TeacherDashboard({super.key});
@@ -756,6 +756,9 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
 
   Future<void> _joinMeeting(dynamic meeting) async {
     try {
+      // ✅ OBTENER EL TOKEN antes de entrar (el objeto de la lista no lo tiene)
+      final joinData = await ApiService.joinMeeting(meeting['channelName']);
+
       final user = Supabase.instance.client.auth.currentUser;
       final profile = await Supabase.instance.client
           .from('profiles')
@@ -766,16 +769,22 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
       final userName = profile['full_name'] ?? 'Maestro';
 
       if (mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => VideoCallScreen(
-              channelName: meeting['channelName'],
-              token: meeting['token'],
-              userName: userName,
-            ),
-          ),
+        print('🚀 Lanzando ventana de videollamada independiente...');
+        
+        await WindowService().openVideoCallWindow(
+          channelName: joinData['channelName'],
+          token: joinData['token'],
+          userName: userName,
         );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Ventana de videollamada abierta'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
       }
     } catch (e) {
       print('Error joining meeting: $e');

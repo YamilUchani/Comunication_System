@@ -7,6 +7,11 @@ class WindowsService {
   /// Retorna `true` si esta es la instancia principal.
   /// Retorna `false` si ya existe otra instancia (y envía los argumentos a ella).
   static Future<bool> ensureSingleInstance(List<String> args, Function(String) onDataReceived) async {
+    // Si contiene el flag '--secondary', permitimos que se abra otra instancia
+    if (args.contains('--secondary')) {
+      return true;
+    }
+
     try {
       final serverSocket = await ServerSocket.bind(InternetAddress.loopbackIPv4, _port);
       serverSocket.listen(

@@ -50,6 +50,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
             channelName: meeting['channelName'],
             token: meeting['token'],
             userName: 'Usuario', // Puedes pasar el nombre real del usuario
+            meetingId: meeting['id'], // 🆔 Pasar ID de la reunión
           ),
         ),
       );
