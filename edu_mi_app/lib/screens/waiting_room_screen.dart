@@ -44,15 +44,15 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
 
         final userName = profile['full_name'] ?? 'Estudiante';
 
-        // Cambiar estado a "Presente" en la base de datos
-        await Supabase.instance.client
-            .from('attendance')
-            .update({
-              'status': 'present', // Estado: Presente (en sala de espera)
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('user_id', user.id)
-            .eq('meeting_id', widget.meetingId);
+        // TODO: Cambiar estado a "Presente" en la base de datos cuando la columna 'status' exista
+        // await Supabase.instance.client
+        //     .from('attendance')
+        //     .update({
+        //       'status': 'present', // Estado: Presente (en sala de espera)
+        //       'updated_at': DateTime.now().toIso8601String(),
+        //     })
+        //     .eq('user_id', user.id)
+        //     .eq('meeting_id', widget.meetingId);
 
         if (context.mounted) {
           // Entrar a la videollamada
