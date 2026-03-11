@@ -11,4 +11,4 @@ ON meeting_participants(last_heartbeat)
 WHERE left_at IS NULL;
 
 -- Comentario documentando el propósito
-COMMENT ON COLUMN meeting_participants.last_heartbeat IS 'Último timestamp de actividad del usuario en la llamada. Se usa para detectar desconexiones abruptas (sin click en abandonar)';
+COMMENT ON COLUMN meeting_participants.last_heartbeat IS 'Último timestamp de actividad del usuario en la llamada. Se usa para detectar desconexiones abruptas (sin click en abandonar). Timeout: 4 segundos';

@@ -1,7 +1,109 @@
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'dart:async';
 import 'video_call_controller.dart';
 import 'screen_sharing_windows.dart';
+
+/// Widget que detecta frames congelados y muestra avatar genérico
+class RemoteVideoWithFrozenDetection extends StatefulWidget {
+  final int uid;
+  final String channelName;
+  final RtcEngine rtcEngine;
+
+  const RemoteVideoWithFrozenDetection({
+    super.key,
+    required this.uid,
+    required this.channelName,
+    required this.rtcEngine,
+  });
+
+  @override
+  State<RemoteVideoWithFrozenDetection> createState() =>
+      _RemoteVideoWithFrozenDetectionState();
+}
+
+class _RemoteVideoWithFrozenDetectionState
+    extends State<RemoteVideoWithFrozenDetection> {
+  late Timer _frameCheckTimer;
+  bool _isFrozen = false;
+  DateTime? _lastFrameTime;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastFrameTime = DateTime.now();
+    
+    // Monitorear cambios de frames cada 1 segundo
+    _frameCheckTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() {
+          final now = DateTime.now();
+          // Si no hay actualización en 1 segundo, marcar como congelado
+          if (now.difference(_lastFrameTime!).inSeconds >= 1) {
+            _isFrozen = true;
+            print('❌ Video congelado detectado para UID: ${widget.uid}');
+          } else {
+            _isFrozen = false;
+            _lastFrameTime = now;
+          }
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _frameCheckTimer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isFrozen) {
+      // Mostrar Avatar genérico cuando el video está congelado
+      return Container(
+        color: Colors.grey[900],
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircleAvatar(
+                radius: 40,
+                backgroundColor: Colors.teal,
+                child: Text(
+                  'UID\n${widget.uid}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Usuario sin conexión',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Mostrar video normal
+    return AgoraVideoView(
+      controller: VideoViewController.remote(
+        rtcEngine: widget.rtcEngine,
+        connection: RtcConnection(channelId: widget.channelName),
+        canvas: VideoCanvas(uid: widget.uid),
+      ),
+    );
+  }
+}
 
 class VideoWidgetWrapper extends StatefulWidget {
   final int uid;
@@ -456,12 +558,11 @@ class _VideoWidgetsState extends State<VideoWidgets> {
 
     final remoteVideoWidget = Stack(
       children: [
-        AgoraVideoView(
-          controller: VideoViewController.remote(
-            rtcEngine: widget.controller.engine,
-            connection: RtcConnection(channelId: widget.controller.channelName),
-            canvas: VideoCanvas(uid: uid),
-          ),
+        // 🎥 Usar widget con detección de frames congelados
+        RemoteVideoWithFrozenDetection(
+          uid: uid,
+          channelName: widget.controller.channelName,
+          rtcEngine: widget.controller.engine,
         ),
         Positioned(
           top: 4,

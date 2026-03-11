@@ -472,12 +472,12 @@ router.post('/:meetingId/leave', authenticateUser, async (req, res, next) => {
 
 /**
  * POST /api/meetings/cleanup-inactive
- * Limpia participantes inactivos (sin heartbeat en los últimos 15 segundos)
+ * Limpia participantes inactivos (sin heartbeat en los últimos 4 segundos)
  * Puede ser llamado periódicamente por el backend o cuando sea necesario
  */
 router.post('/cleanup-inactive', authenticateUser, async (req, res, next) => {
     try {
-        const inactiveThreshold = new Date(Date.now() - 15 * 1000); // 15 segundos atrás
+        const inactiveThreshold = new Date(Date.now() - 4 * 1000); // 4 segundos atrás
 
         logger.info(`🧹 Limpiando participantes inactivos desde ${inactiveThreshold}`);
 
