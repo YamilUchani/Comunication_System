@@ -63,6 +63,56 @@ class WindowService {
     }
   }
 
+  /// Abre una nueva ventana de sala de espera.
+  /// 
+  /// [channelName]: Nombre del canal de Agora.
+  /// [userName]: Nombre del usuario.
+  /// [userRole]: Rol del usuario (teacher, admin, student).
+  /// [meetingId]: ID de la reunión.
+  /// [authToken]: Token de autenticación de Supabase.
+  Future<void> openWaitingRoomWindow({
+    required String channelName,
+    required String userName,
+    required String userRole,
+    String? meetingId,
+    String? authToken,
+  }) async {
+    final String executablePath = Platform.resolvedExecutable;
+    
+    // Argumentos para la nueva instancia
+    final List<String> args = [
+      '--secondary',
+      '--mode=waiting-room',
+      '--channel=$channelName',
+      '--user=$userName',
+      '--role=$userRole',
+      if (meetingId != null) '--meetingId=$meetingId',
+      if (authToken != null) '--authToken=$authToken',
+    ];
+
+    print('🚀 Iniciando sala de espera...');
+    print('   CMD: $executablePath ${args.join(' ')}');
+
+    try {
+      final process = await Process.start(executablePath, args);
+      
+      process.stdout.transform(utf8.decoder).listen((data) {
+        stdout.write('[WAITING-OUT] $data');
+      });
+      process.stderr.transform(utf8.decoder).listen((data) {
+        stderr.write('[WAITING-ERR] $data');
+      });
+
+      _spawnedProcesses.add(process);
+      process.exitCode.then((_) => _spawnedProcesses.remove(process));
+      
+      print('   ✅ Sala de espera iniciada con PID: ${process.pid}');
+    } catch (e) {
+      print('   ❌ Error al iniciar sala de espera: $e');
+      rethrow;
+    }
+  }
+
   /// Cierra todas las ventanas secundarias abiertas.
   /// Útil cuando la ventana principal se está cerrando.
   void terminateSecondaryWindows() {

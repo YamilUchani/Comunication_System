@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/api_service.dart';
+import '../services/window_service.dart';
 import '../video_call/video_call_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -639,6 +640,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       print('✅ Token obtenido: ${meetingData['token']}');
 
       final user = Supabase.instance.client.auth.currentUser;
+      final session = Supabase.instance.client.auth.currentSession;
       final profile = await Supabase.instance.client
           .from('profiles')
           .select('full_name')
@@ -648,17 +650,24 @@ class _AdminDashboardState extends State<AdminDashboard> {
       final userName = profile['full_name'] ?? 'Admin';
 
       if (mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => VideoCallScreen(
-              channelName: meeting['channelName'],
-              token: meetingData['token'],
-              userName: userName,
-              meetingId: meetingData['id'], // 🆔 Pasar ID de la reunión
-            ),
-          ),
+        print('🚀 Lanzando sala de espera...');
+        
+        await WindowService().openWaitingRoomWindow(
+          channelName: meetingData['channelName'],
+          userName: userName,
+          userRole: 'admin',
+          meetingId: meetingData['id'], // 🆔 Pasar ID de la reunión
+          authToken: session?.accessToken, // 🔑 Pasar token de autenticación
         );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Ventana de videollamada abierta'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
       }
     } catch (e) {
       print('❌ Error uniéndose a reunión: $e');

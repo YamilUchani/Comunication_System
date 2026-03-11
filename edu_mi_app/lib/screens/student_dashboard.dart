@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../services/api_service.dart';
+import '../services/window_service.dart';
 import '../video_call/video_call_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
@@ -217,46 +218,61 @@ class _StudentDashboardState extends State<StudentDashboard> {
         title: Text(meeting['title']),
         subtitle: Text('Profesor: ${meeting['creatorName'] ?? 'Maestro'}'),
         trailing: ElevatedButton(
-          onPressed: () async {
-            try {
-              final joinData = await ApiService.joinMeeting(
-                meeting['channelName'],
-              );
-
-              if (context.mounted) {
-                final user = Supabase.instance.client.auth.currentUser;
-                final profile = await Supabase.instance.client
-                    .from('profiles')
-                    .select('full_name')
-                    .eq('user_id', user!.id)
-                    .single();
-
-                final userName = profile['full_name'] ?? 'Estudiante';
-
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => VideoCallScreen(
-                      channelName: joinData['channelName'],
-                      token: joinData['token'],
-                      userName: userName,
-                      meetingId: joinData['id'], // 🆔 Pasar ID de la reunión
-                    ),
-                  ),
-                );
-              }
-            } catch (e) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text('Error al unirse: $e')));
-              }
-            }
-          },
+          onPressed: () => _joinMeeting(meeting),
           child: const Text('Unirse'),
         ),
       ),
     );
+  }
+
+  Future<void> _joinMeeting(dynamic meeting) async {
+    try {
+      print('🎥 Intentando unirse a reunión: ${meeting['channelName']}');
+
+      final joinData = await ApiService.joinMeeting(
+        meeting['channelName'],
+      );
+
+      final user = Supabase.instance.client.auth.currentUser;
+      final session = Supabase.instance.client.auth.currentSession;
+      if (!mounted) return;
+
+      final profile = await Supabase.instance.client
+          .from('profiles')
+          .select('full_name')
+          .eq('user_id', user!.id)
+          .single();
+
+      final userName = profile['full_name'] ?? 'Estudiante';
+
+      if (mounted) {
+        print('🚀 Lanzando sala de espera...');
+        
+        await WindowService().openWaitingRoomWindow(
+          channelName: joinData['channelName'],
+          userName: userName,
+          userRole: 'student',
+          meetingId: joinData['id'], // 🆔 Pasar ID de la reunión
+          authToken: session?.accessToken, // 🔑 Pasar token de autenticación
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Ventana de videollamada abierta'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('❌ Error uniéndose a reunión: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al unirse: $e')));
+      }
+    }
   }
 
   void _showStudentProfile(BuildContext context) {

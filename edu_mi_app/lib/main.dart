@@ -13,6 +13,7 @@ import 'screens/admin_dashboard.dart';
 import 'screens/teacher_dashboard.dart';
 import 'screens/student_dashboard.dart';
 import 'screens/waiting_for_assignment_screen.dart';
+import 'screens/waiting_room_screen.dart';
 import 'services/windows_service.dart';
 import 'services/window_service.dart';
 import 'services/deep_link_service.dart';
@@ -52,16 +53,55 @@ Future<void> main(List<String> args) async {
   if (args.contains('--secondary')) {
     print('🧩 [CHILD PROCESS] Detectado modo secundario. Supabase inicializado ✅');
     
+    final mode = _getArgValue(args, 'mode') ?? 'video-call';
     final channel = _getArgValue(args, 'channel');
-    final token = _getArgValue(args, 'token');
-    final userName = _getArgValue(args, 'user') ?? 'Maestro';
-    final uidStr = _getArgValue(args, 'uid');
-    final uid = uidStr != null ? int.tryParse(uidStr) : null;
-    final meetingId = _getArgValue(args, 'meetingId'); // 🆔 Obtener ID de la reunión
-    final authToken = _getArgValue(args, 'authToken'); // 🔑 Obtener token de autenticación
+    final userName = _getArgValue(args, 'user') ?? 'Usuario';
+    final meetingId = _getArgValue(args, 'meetingId');
+    final authToken = _getArgValue(args, 'authToken');
 
-    final appId = dotenv.env['AGORA_APP_ID'] ?? '';
-    print('   - Agora App ID cargado: ${appId.isNotEmpty}');
+    // --- MODO SALA DE ESPERA ---
+    if (mode == 'waiting-room') {
+      final userRole = _getArgValue(args, 'role') ?? 'student';
+      
+      if (channel != null) {
+        print('⏳ [CHILD PROCESS] Preparando WaitingRoomScreen...');
+        print('   - Canal: $channel, Usuario: $userName, Rol: $userRole');
+        
+        try {
+          runApp(MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: ThemeData(
+              primarySwatch: Colors.teal,
+              scaffoldBackgroundColor: Colors.black,
+            ),
+            home: WaitingRoomScreen(
+              channelName: channel,
+              userName: userName,
+              userRole: userRole,
+              meetingId: meetingId,
+              authToken: authToken,
+            ),
+          ));
+          return;
+        } catch (e, stack) {
+          print('❌ [CHILD PROCESS] Error FATAL en WaitingRoom: $e');
+          print(stack);
+          exit(1);
+        }
+      } else {
+        print('❌ [CHILD PROCESS] Faltan argumentos críticos para sala de espera (channel)');
+        exit(1);
+      }
+    }
+    
+    // --- MODO VIDEOLLAMADA ---
+    else if (mode == 'video-call') {
+      final token = _getArgValue(args, 'token');
+      final uidStr = _getArgValue(args, 'uid');
+      final uid = uidStr != null ? int.tryParse(uidStr) : null;
+
+      final appId = dotenv.env['AGORA_APP_ID'] ?? '';
+      print('   - Agora App ID cargado: ${appId.isNotEmpty}');
 
       if (channel != null && token != null) {
         print('🎬 [CHILD PROCESS] Preparando VideoCallScreen...');
@@ -79,8 +119,8 @@ Future<void> main(List<String> args) async {
               token: token,
               userName: userName,
               uid: uid,
-              meetingId: meetingId, // 🆔 Pasar ID de la reunión
-              authToken: authToken, // 🔑 Pasar token de autenticación
+              meetingId: meetingId,
+              authToken: authToken,
             ),
           ));
           return;
@@ -90,8 +130,9 @@ Future<void> main(List<String> args) async {
           exit(1);
         }
       } else {
-      print('❌ [CHILD PROCESS] Faltan argumentos críticos (channel/token)');
-      exit(1);
+        print('❌ [CHILD PROCESS] Faltan argumentos críticos (channel/token)');
+        exit(1);
+      }
     }
   }
 

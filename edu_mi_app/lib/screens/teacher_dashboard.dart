@@ -770,12 +770,12 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
       final userName = profile['full_name'] ?? 'Maestro';
 
       if (mounted) {
-        print('🚀 Lanzando ventana de videollamada independiente...');
+        print('🚀 Lanzando sala de espera...');
         
-        await WindowService().openVideoCallWindow(
+        await WindowService().openWaitingRoomWindow(
           channelName: joinData['channelName'],
-          token: joinData['token'],
           userName: userName,
+          userRole: 'teacher',
           meetingId: joinData['id'], // 🆔 Pasar ID de la reunión
           authToken: session?.accessToken, // 🔑 Pasar token de autenticación
         );
