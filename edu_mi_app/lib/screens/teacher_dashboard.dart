@@ -775,6 +775,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
           channelName: joinData['channelName'],
           token: joinData['token'],
           userName: userName,
+          meetingId: joinData['id'], // 🆔 Pasar ID de la reunión
         );
 
         if (mounted) {
