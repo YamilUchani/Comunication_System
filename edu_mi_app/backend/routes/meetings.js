@@ -474,8 +474,9 @@ router.post('/:meetingId/leave', authenticateUser, async (req, res, next) => {
  * POST /api/meetings/:meetingId/user-left
  * Registra que un usuario remoto se desconectó (detectado por evento onUserOffline de Agora)
  * Llamado automáticamente por el frontend cuando detecta desconexión
+ * NO REQUIERE AUTENTICACIÓN - es solo una notificación informativa
  */
-router.post('/:meetingId/user-left', authenticateUser, async (req, res, next) => {
+router.post('/:meetingId/user-left', async (req, res, next) => {
     try {
         const { meetingId } = req.params;
         const { remoteUid } = req.body;
@@ -488,41 +489,10 @@ router.post('/:meetingId/user-left', authenticateUser, async (req, res, next) =>
 
         logger.info(`🚪 [USER-LEFT] Usuario remoto UID=${remoteUid} desconectado en reunión ${meetingId}`);
 
-        // Buscar el participante por su remoteUid (el UID que asignó Agora)
-        const { data: participants, error: fetchError } = await supabase
-            .from('meeting_participants')
-            .select('id, user_id, meeting_id')
-            .eq('meeting_id', meetingId)
-            .is('left_at', null); // Solo activos
-
-        if (fetchError) {
-            logger.warn('Error fetching participants', fetchError);
-            return res.status(500).json({
-                error: { message: 'Error al buscar participante' }
-            });
-        }
-
-        // Nota: remoteUid es el UID asignado por Agora, no el user_id de Supabase
-        // Marcamos TODOS los participantes activos sin left_at como detectados
-        // En un escenario real, podrías tener una tabla que mapee Agora UID -> user_id
-        // Por ahora, registramos el evento del UID
+        // Registrar el evento de desconexión (informativo solamente)
+        // No necesitamos validar participantes porque Agora ya lo hizo
         
-        if (participants && participants.length > 0) {
-            // Registrar que detectamos la desconexión
-            logger.info(`✅ [USER-LEFT] Detección de desconexión registrada para UID=${remoteUid}`);
-            
-            // Opcionalmente, registrar en un log o tabla de eventos
-            // const { error: logError } = await supabase
-            //     .from('disconnection_events')
-            //     .insert({
-            //         meeting_id: meetingId,
-            //         agora_uid: remoteUid,
-            //         detected_at: new Date().toISOString()
-            //     });
-        }
-
-        // Responder exitosamente (no falta si no se encuentra exactamente, ya que Agora 
-        // proporciona el UID y nosotros registramos el evento)
+        // Responder exitosamente
         res.status(200).json({
             success: true,
             message: `Desconexión de UID=${remoteUid} registrada`,
