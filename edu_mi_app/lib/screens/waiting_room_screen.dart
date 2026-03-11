@@ -23,6 +23,11 @@ class WaitingRoomScreen extends StatefulWidget {
 
 class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
   bool _isLoading = false;
+  bool _inVideoCall = false;
+  late String _token;
+  late String _channelName;
+  late String _userName;
+  late String _videoMeetingId;
 
   Future<void> _enterVideoCall() async {
     if (_isLoading) return;
@@ -48,25 +53,21 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
         // await Supabase.instance.client
         //     .from('attendance')
         //     .update({
-        //       'status': 'present', // Estado: Presente (en sala de espera)
+        //       'status': 'in_call', // Estado: En Llamada (en videollamada)
         //       'updated_at': DateTime.now().toIso8601String(),
         //     })
         //     .eq('user_id', user.id)
         //     .eq('meeting_id', widget.meetingId);
 
-        if (context.mounted) {
-          // Entrar a la videollamada
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => VideoCallScreen(
-                channelName: joinData['channelName'],
-                token: joinData['token'],
-                userName: userName,
-                meetingId: joinData['id'],
-              ),
-            ),
-          );
+        if (context.mounted && mounted) {
+          setState(() {
+            _token = joinData['token'];
+            _channelName = joinData['channelName'];
+            _userName = userName;
+            _videoMeetingId = joinData['id'];
+            _inVideoCall = true;
+            _isLoading = false;
+          });
         }
       }
     } catch (e) {
@@ -78,15 +79,40 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
           ),
         );
       }
-    } finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
   }
 
+  Future<void> _leaveVideoCall() async {
+    if (mounted) {
+      setState(() {
+        _inVideoCall = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Si está en videollamada, mostrar VideoCallScreen dentro
+    if (_inVideoCall) {
+      return WillPopScope(
+        onWillPop: () async {
+          // Al presionar atrás, volver a la sala de espera
+          await _leaveVideoCall();
+          return false;
+        },
+        child: VideoCallScreen(
+          channelName: _channelName,
+          token: _token,
+          userName: _userName,
+          meetingId: _videoMeetingId,
+        ),
+      );
+    }
+
+    // Si no está en videollamada, mostrar la sala de espera
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
