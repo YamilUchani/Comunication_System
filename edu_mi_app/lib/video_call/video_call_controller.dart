@@ -163,12 +163,16 @@ class VideoCallController {
             print('═══════════════════════════════════════════════════════════');
             print('');
             
-            final currentUids = Set<int>.from(remoteUids.value)..remove(uid);
-            remoteUids.value = currentUids;
-            print('✅ UID removido de remoteUids. Usuarios activos: ${remoteUids.value}');
-            
-            // 👋 Notificar al backend cuando alguien se va (una sola vez)
+            // Notificar al backend INMEDIATAMENTE
             _notifyUserLeft(uid);
+            
+            // Mostrar avatar instantáneamente (el widget lo hace en onRemoteVideoStateChanged)
+            // Esperar 500ms para que el usuario vea la desconexión, luego remover del layout
+            Future.delayed(const Duration(milliseconds: 500), () {
+              final currentUids = Set<int>.from(remoteUids.value)..remove(uid);
+              remoteUids.value = currentUids;
+              print('✅ UID removido del layout después de 500ms. Usuarios activos: ${remoteUids.value}');
+            });
             
             // También remover de pantalla compartida si estuviera
             if (remoteScreenShareUids.value.contains(uid)) {
