@@ -93,7 +93,17 @@ class _RemoteVideoWithFrozenDetectionState
             _lastNetworkQuality = qualityString;
             print('📊 [RemoteVideo $uid] onNetworkQuality: $qualityString');
           }
-          _recordActivity('onNetworkQuality');
+          
+          // 🚨 Si la red es DESCONOCIDA/PERDIDA, NO consideramos como "actividad"
+          // Dejar que el timeout de 2 segundos se active
+          final isUnknown = txQuality.name.contains('Unknown') || rxQuality.name.contains('Unknown');
+          if (!isUnknown) {
+            // Red está buena/normal, registrar como actividad
+            _recordActivity('onNetworkQuality');
+          } else {
+            // Red desconocida - NO registrar, dejar timeout
+            print('⚠️ [RemoteVideo $uid] Red desconocida - esperando timeout de 2s');
+          }
         }
       },
     );
