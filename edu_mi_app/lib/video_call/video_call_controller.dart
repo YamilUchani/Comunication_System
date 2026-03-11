@@ -166,13 +166,11 @@ class VideoCallController {
             // Notificar al backend INMEDIATAMENTE
             _notifyUserLeft(uid);
             
-            // Mostrar avatar instantáneamente (el widget lo hace en onRemoteVideoStateChanged)
-            // Esperar 500ms para que el usuario vea la desconexión, luego remover del layout
-            Future.delayed(const Duration(milliseconds: 500), () {
-              final currentUids = Set<int>.from(remoteUids.value)..remove(uid);
-              remoteUids.value = currentUids;
-              print('✅ UID removido del layout después de 500ms. Usuarios activos: ${remoteUids.value}');
-            });
+            // Remover del layout INSTANTÁNEAMENTE cuando onUserOffline dispara
+            // El avatar ya está mostrándose en onRemoteVideoStateChanged (visual feedback)
+            final currentUids = Set<int>.from(remoteUids.value)..remove(uid);
+            remoteUids.value = currentUids;
+            print('✅ UID removido del layout INSTANTÁNEAMENTE. Usuarios activos: ${remoteUids.value}');
             
             // También remover de pantalla compartida si estuviera
             if (remoteScreenShareUids.value.contains(uid)) {
