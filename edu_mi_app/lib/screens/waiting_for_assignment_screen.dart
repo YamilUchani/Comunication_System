@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
+import '../video_call/video_call_screen.dart';
+import '../services/api_service.dart';
 
 class WaitingForAssignmentScreen extends StatefulWidget {
   const WaitingForAssignmentScreen({super.key});
@@ -87,6 +89,59 @@ class _WaitingForAssignmentScreenState
           );
     } catch (e) {
       print('❌ [WaitingScreen] Error configurando listener: $e');
+    }
+  }
+
+  Future<void> _enterVideoCallTest() async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No hay usuario activo')),
+        );
+        return;
+      }
+
+      // Mostrar indicador de carga
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Preparando videollamada de prueba...')),
+        );
+      }
+
+      // Obtener datos de la reunión
+      final channelName = 'test-channel-${DateTime.now().millisecondsSinceEpoch}';
+      final joinData = await ApiService.joinMeeting(channelName);
+
+      // Obtener nombre del usuario
+      final profile = await Supabase.instance.client
+          .from('profiles')
+          .select('full_name')
+          .eq('user_id', user.id)
+          .single();
+
+      final userName = profile['full_name'] ?? 'Estudiante';
+
+      if (context.mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VideoCallScreen(
+              channelName: joinData['channelName'],
+              token: joinData['token'],
+              userName: userName,
+              meetingId: joinData['id'],
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ [WaitingScreen] Error entrando a videollamada: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${e.toString()}')),
+        );
+      }
     }
   }
 
@@ -193,6 +248,25 @@ class _WaitingForAssignmentScreenState
                   style: TextStyle(color: Colors.white70, fontSize: 14),
                 ),
                 const SizedBox(height: 60),
+
+                // Botón de prueba para entrar a videollamada
+                ElevatedButton.icon(
+                  onPressed: _enterVideoCallTest,
+                  icon: const Icon(Icons.videocam),
+                  label: const Text(
+                    '🧪 TEST: Entrar a Videollamada',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
 
                 // Botón de cerrar sesión
                 OutlinedButton.icon(
