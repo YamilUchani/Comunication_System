@@ -51,62 +51,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
       meetingId: widget.meetingId,
     );
     _initAgora();
-    
-    // 🔔 Escuchar cambios en participantes de la reunión
-    if (widget.meetingId != null) {
-      _setupRealtimeListener();
-    }
-  }
-
-  void _setupRealtimeListener() {
-    print('🔔 Iniciando Realtime listener para cambios de participantes');
-    
-    Supabase.instance.client
-        .from('meeting_participants')
-        .on(RealtimeListenTypes.postgresChanges,
-            SupabaseStreamEvent(
-              event: '*',
-              schema: 'public',
-              table: 'meeting_participants',
-              filter: 'meeting_id=eq.${widget.meetingId}',
-            ), (payload) {
-      print('📨 Cambio en participantes: ${payload.eventType} - ${payload.newRecord}');
-      
-      // Si alguien actualiza left_at (se fue), notificar
-      final newRecord = payload.newRecord;
-      if (newRecord != null && newRecord['left_at'] != null) {
-        final userId = newRecord['user_id'];
-        // Si el usuario que se fue no somos nosotros, notificar
-        final currentUser = Supabase.instance.client.auth.currentUser;
-        if (currentUser != null && userId != currentUser.id) {
-          print('🚪 ¡El otro usuario se fue!');
-          controller.otherUserLeft.value = true;
-          _showUserLeftDialog();
-        }
-      }
-    }).subscribe();
-  }
-
-  void _showUserLeftDialog() {
-    if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Text('Llamada Finalizada'),
-          content: const Text('El otro usuario ha abandonado la llamada.'),
-          actions: [
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context); // Cerrar diálogo
-                Navigator.pop(context); // Salir de la llamada
-              },
-              child: const Text('Aceptar'),
-            ),
-          ],
-        ),
-      );
-    }
   }
 
   @override

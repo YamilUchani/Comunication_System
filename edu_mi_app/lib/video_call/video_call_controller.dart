@@ -222,14 +222,14 @@ class VideoCallController {
   Future<void> _sendHeartbeat() async {
     try {
       final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
+      final session = Supabase.instance.client.auth.currentSession;
+      if (session == null) return;
 
       final response = await http.post(
         Uri.parse('$backendUrl/api/meetings/$meetingId/heartbeat'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${user.session?.accessToken ?? ''}',
+          'Authorization': 'Bearer ${session.accessToken}',
         },
       ).timeout(
         const Duration(seconds: 2),
@@ -252,14 +252,14 @@ class VideoCallController {
 
     try {
       final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
+      final session = Supabase.instance.client.auth.currentSession;
+      if (session == null) return;
 
       final response = await http.post(
         Uri.parse('$backendUrl/api/meetings/$meetingId/leave'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${user.session?.accessToken ?? ''}',
+          'Authorization': 'Bearer ${session.accessToken}',
         },
       );
 
