@@ -11,6 +11,7 @@ class VideoCallController {
   final String channelName;
   final String token;
   final String? meetingId; // ID de la reunión para heartbeat
+  final String? authToken; // Token de autenticación para heartbeat
   final ValueNotifier<bool> localUserJoined = ValueNotifier(false);
   final ValueNotifier<bool> isAudioMuted = ValueNotifier(false);
   final ValueNotifier<bool> isVideoMuted = ValueNotifier(false);
@@ -24,13 +25,15 @@ class VideoCallController {
   int get localUid => _localUid;
   final int? _providedUid;
   Timer? _joinTimeoutTimer;
-  Timer? _heartbeatTimer; // ❤️ Timer para enviar heartbeats
+  bool _isCameraDisabledByNetwork = false; // 📡 Cámara desactivada por mala red
+  bool _isNetworkQualityLow = false; // 📡 Rastrear estado de red
 
   VideoCallController({
     required this.channelName,
     required this.token,
     int? uid,
     this.meetingId,
+    this.authToken,
   }) : _providedUid = uid;
 
   Future<void> init() async {
@@ -140,8 +143,7 @@ class VideoCallController {
             if (!completer.isCompleted) completer.complete();
             print('[EVENT] onJoinChannelSuccess: connection=$connection');
             
-            // ❤️ Iniciar heartbeat cuando se une exitosamente
-            _startHeartbeat();
+            // NO HEARTBEAT - Solo usar eventos nativos de Agora
           },
           onError: (err, msg) {
             print('❌ Agora Error: $err, $msg');
@@ -152,22 +154,50 @@ class VideoCallController {
             remoteUids.value = currentUids;
           },
           onUserOffline: (connection, uid, reason) {
-            print('[EVENT] onUserOffline: uid=$uid, reason=$reason');
+            print('');
+            print('═══════════════════════════════════════════════════════════');
+            print('🚪 [DESCONEXION] onUserOffline detectado');
+            print('   Usuario UID: $uid');
+            print('   Razón: ${reason.name}');
+            print('   Timestamp: ${DateTime.now()}');
+            print('═══════════════════════════════════════════════════════════');
+            print('');
+            
             final currentUids = Set<int>.from(remoteUids.value)..remove(uid);
             remoteUids.value = currentUids;
+            print('✅ UID removido de remoteUids. Usuarios activos: ${remoteUids.value}');
+            
+            // 👋 Notificar al backend cuando alguien se va (una sola vez)
+            _notifyUserLeft(uid);
             
             // También remover de pantalla compartida si estuviera
             if (remoteScreenShareUids.value.contains(uid)) {
               removeRemoteScreenShareUid(uid);
+              print('✅ También removido de pantalla compartida');
             }
           },
           onConnectionStateChanged: (connection, state, reason) {
             print('[EVENT] onConnectionStateChanged: state=$state, reason=$reason');
           },
           onNetworkQuality: (connection, uid, txQuality, rxQuality) {
-            // Loguear solo si la calidad es muy mala (6 = DOWN)
-            if (uid != 0 && rxQuality.index >= 5) {
-              print('⚠️ Mala calidad de red detectada para usuario $uid: $rxQuality');
+            // Monitorear la calidad de la RED del usuario LOCAL (uid == 0)
+            if (uid == 0) {
+              // Índices: 0=EXCELLENT, 1=GOOD, 2=FAIR, 3=POOR, 4=BAD, 5=VBAD (DOWN)
+              final isNetworkBad = txQuality.index >= 4; // BAD (4) o VBAD (5)
+              
+              if (isNetworkBad && !_isNetworkQualityLow) {
+                // Red está mala, desactivar cámara
+                _isNetworkQualityLow = true;
+                _isCameraDisabledByNetwork = true;
+                _engine.muteLocalVideoStream(true);
+                print('⚠️ Red mala detectada (${txQuality.name}), cámara desactivada automáticamente');
+              } else if (!isNetworkBad && _isNetworkQualityLow) {
+                // Red se recuperó, reactivar cámara
+                _isNetworkQualityLow = false;
+                _isCameraDisabledByNetwork = false;
+                _engine.muteLocalVideoStream(false);
+                print('✅ Red recuperada (${txQuality.name}), cámara reactivada');
+              }
             }
           },
         ),
@@ -206,43 +236,62 @@ class VideoCallController {
     isVideoMuted.value = newMuteState;
   }
 
-  // ❤️ HEARTBEAT: Enviar latido a Supabase cada 3 segundos
-  void _startHeartbeat() {
+  // ❤️ NO HEARTBEAT: Usar solo eventos nativos de Agora
+  // onUserOffline se dispara automáticamente cuando alguien se desconecta
+  // onRemoteVideoStateChanged detecta cuando video está congelado/detenido
+  // Esto es mucho más eficiente que polling cada 3 segundos
+  
+  Future<void> _notifyUserLeft(int uid) async {
+    // Notificación única cuando otro usuario se va
     if (meetingId == null) {
-      print('⚠️ No meeting ID, heartbeat no iniciado');
+      print('   ⚠️ meetingId es null, no notificando');
       return;
     }
-
-    _heartbeatTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
-      await _sendHeartbeat();
-    });
-    print('❤️ Heartbeat iniciado cada 3 segundos');
-  }
-
-  Future<void> _sendHeartbeat() async {
+    
     try {
       final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-      final session = Supabase.instance.client.auth.currentSession;
-      if (session == null) return;
+      String? accessToken = authToken;
+      if (accessToken == null) {
+        try {
+          final session = Supabase.instance.client.auth.currentSession;
+          accessToken = session?.accessToken;
+        } catch (e) {
+          print('   ⚠️ Error obteniendo accessToken de Supabase: $e');
+          return;
+        }
+      }
+      
+      if (accessToken == null) {
+        print('   ⚠️ No hay accessToken disponible, no notificando');
+        return;
+      }
 
+      print('   📡 Intentando notificar al backend...');
+      print('   URL: $backendUrl/meetings/$meetingId/user-left');
+      
+      // Notificar de forma asíncrona sin bloquear
       final response = await http.post(
-        Uri.parse('$backendUrl/api/meetings/$meetingId/heartbeat'),
+        Uri.parse('$backendUrl/meetings/$meetingId/user-left'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${session.accessToken}',
+          'Authorization': 'Bearer ${accessToken.substring(0, 20)}***',
         },
-      ).timeout(
-        const Duration(seconds: 2),
-        onTimeout: () => http.Response('timeout', 500),
-      );
-
-      if (response.statusCode == 200) {
-        print('✅ Heartbeat enviado');
+        body: jsonEncode({'remoteUid': uid}),
+      ).timeout(const Duration(seconds: 1), onTimeout: () {
+        print('   ⏱️ TIMEOUT notificando usuario left');
+        return http.Response('timeout', 0);
+      });
+      
+      print('   Response status: ${response.statusCode}');
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        print('   ✅ Backend notificado correctamente');
+      } else if (response.statusCode == 0) {
+        print('   ⚠️ Timeout (backend podría estar caído o sin internet)');
       } else {
-        print('⚠️ Error heartbeat: ${response.statusCode}');
+        print('   ⚠️ Backend retornó: ${response.statusCode}');
       }
     } catch (e) {
-      print('❌ Error enviando heartbeat: $e');
+      print('   ❌ Error notificando: $e');
     }
   }
 
@@ -252,14 +301,27 @@ class VideoCallController {
 
     try {
       final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-      final session = Supabase.instance.client.auth.currentSession;
-      if (session == null) return;
+      
+      // Si tenemos authToken pasado directamente, usarlo
+      String? accessToken = authToken;
+      if (accessToken == null) {
+        try {
+          final session = Supabase.instance.client.auth.currentSession;
+          accessToken = session?.accessToken;
+        } catch (e) {
+          print('⚠️ Supabase no inicializado, saltando leave notification: $e');
+          return;
+        }
+      }
+      
+      if (accessToken == null) return;
 
+      // BACKEND_URL ya incluye /api, así que solo agregar el resto del path
       final response = await http.post(
-        Uri.parse('$backendUrl/api/meetings/$meetingId/leave'),
+        Uri.parse('$backendUrl/meetings/$meetingId/leave'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${session.accessToken}',
+          'Authorization': 'Bearer $accessToken',
         },
       );
 
@@ -274,8 +336,7 @@ class VideoCallController {
   Future<void> leaveAndDispose() async {
     print('🧹 Limpiando controlador de video...');
     
-    // Detener heartbeat y notificar salida
-    _heartbeatTimer?.cancel();
+    // Notificar salida (una sola vez)
     await notifyLeaveChannel();
     
     _joinTimeoutTimer?.cancel();

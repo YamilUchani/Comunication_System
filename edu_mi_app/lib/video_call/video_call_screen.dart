@@ -16,6 +16,7 @@ class VideoCallScreen extends StatefulWidget {
   final String token;
   final String userName;
   final String? meetingId; // 🆔 ID de la reunión para heartbeat
+  final String? authToken; // 🔑 Token de autenticación para heartbeat
 
   const VideoCallScreen({
     super.key,
@@ -24,6 +25,7 @@ class VideoCallScreen extends StatefulWidget {
     required this.userName,
     this.uid,
     this.meetingId,
+    this.authToken,
   });
 
   final int? uid;
@@ -49,6 +51,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
       token: widget.token,
       uid: widget.uid,
       meetingId: widget.meetingId,
+      authToken: widget.authToken, // 🔑 Pasar token de autenticación
     );
     _initAgora();
   }

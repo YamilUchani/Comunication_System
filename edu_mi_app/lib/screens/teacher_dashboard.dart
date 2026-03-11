@@ -760,6 +760,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
       final joinData = await ApiService.joinMeeting(meeting['channelName']);
 
       final user = Supabase.instance.client.auth.currentUser;
+      final session = Supabase.instance.client.auth.currentSession;
       final profile = await Supabase.instance.client
           .from('profiles')
           .select('full_name')
@@ -776,6 +777,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
           token: joinData['token'],
           userName: userName,
           meetingId: joinData['id'], // 🆔 Pasar ID de la reunión
+          authToken: session?.accessToken, // 🔑 Pasar token de autenticación
         );
 
         if (mounted) {

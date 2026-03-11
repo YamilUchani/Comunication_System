@@ -31,52 +31,7 @@ Future<void> main(List<String> args) async {
     print('⚠️ Warning: .env file not found. Make sure to create it.');
   }
 
-  // --- LÓGICA DE VENTANAS SECUNDARIAS ---
-  if (args.contains('--secondary')) {
-    print('🧩 [CHILD PROCESS] Detectado modo secundario. Saltando Supabase...');
-    
-    final channel = _getArgValue(args, 'channel');
-    final token = _getArgValue(args, 'token');
-    final userName = _getArgValue(args, 'user') ?? 'Maestro';
-    final uidStr = _getArgValue(args, 'uid');
-    final uid = uidStr != null ? int.tryParse(uidStr) : null;
-    final meetingId = _getArgValue(args, 'meetingId'); // 🆔 Obtener ID de la reunión
-
-    final appId = dotenv.env['AGORA_APP_ID'] ?? '';
-    print('   - Agora App ID cargado: ${appId.isNotEmpty}');
-
-      if (channel != null && token != null) {
-        print('🎬 [CHILD PROCESS] Preparando VideoCallScreen...');
-        print('   - Canal: $channel, UID: $uid, MeetingID: $meetingId');
-
-        try {
-          runApp(MaterialApp(
-            debugShowCheckedModeBanner: false,
-            theme: ThemeData(
-              primarySwatch: Colors.teal,
-              scaffoldBackgroundColor: Colors.black,
-            ),
-            home: VideoCallScreen(
-              channelName: channel,
-              token: token,
-              userName: userName,
-              uid: uid,
-              meetingId: meetingId, // 🆔 Pasar ID de la reunión
-            ),
-          ));
-          return;
-        } catch (e, stack) {
-          print('❌ [CHILD PROCESS] Error FATAL al arrancar: $e');
-          print(stack);
-          exit(1);
-        }
-      } else {
-      print('❌ [CHILD PROCESS] Faltan argumentos críticos (channel/token)');
-      exit(1);
-    }
-  }
-
-  // --- CONFIGURACIÓN PARA VENTANA PRINCIPAL ---
+  // --- INICIALIZAR SUPABASE PARA AMBAS VENTANAS ---
   final url = dotenv.env['SUPABASE_URL'];
   final anonKey = dotenv.env['SUPABASE_ANON_KEY'];
 
@@ -92,6 +47,55 @@ Future<void> main(List<String> args) async {
       authFlowType: AuthFlowType.implicit,
     ),
   );
+
+  // --- LÓGICA DE VENTANAS SECUNDARIAS ---
+  if (args.contains('--secondary')) {
+    print('🧩 [CHILD PROCESS] Detectado modo secundario. Supabase inicializado ✅');
+    
+    final channel = _getArgValue(args, 'channel');
+    final token = _getArgValue(args, 'token');
+    final userName = _getArgValue(args, 'user') ?? 'Maestro';
+    final uidStr = _getArgValue(args, 'uid');
+    final uid = uidStr != null ? int.tryParse(uidStr) : null;
+    final meetingId = _getArgValue(args, 'meetingId'); // 🆔 Obtener ID de la reunión
+    final authToken = _getArgValue(args, 'authToken'); // 🔑 Obtener token de autenticación
+
+    final appId = dotenv.env['AGORA_APP_ID'] ?? '';
+    print('   - Agora App ID cargado: ${appId.isNotEmpty}');
+
+      if (channel != null && token != null) {
+        print('🎬 [CHILD PROCESS] Preparando VideoCallScreen...');
+        print('   - Canal: $channel, UID: $uid, MeetingID: $meetingId, AuthToken: ${authToken != null ? '✅' : '❌'}');
+
+        try {
+          runApp(MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: ThemeData(
+              primarySwatch: Colors.teal,
+              scaffoldBackgroundColor: Colors.black,
+            ),
+            home: VideoCallScreen(
+              channelName: channel,
+              token: token,
+              userName: userName,
+              uid: uid,
+              meetingId: meetingId, // 🆔 Pasar ID de la reunión
+              authToken: authToken, // 🔑 Pasar token de autenticación
+            ),
+          ));
+          return;
+        } catch (e, stack) {
+          print('❌ [CHILD PROCESS] Error FATAL al arrancar: $e');
+          print(stack);
+          exit(1);
+        }
+      } else {
+      print('❌ [CHILD PROCESS] Faltan argumentos críticos (channel/token)');
+      exit(1);
+    }
+  }
+
+  // --- CONFIGURACIÓN PARA VENTANA PRINCIPAL ---
 
   if (Platform.isWindows) {
     final isMainInstance = await WindowsService.ensureSingleInstance(args, (

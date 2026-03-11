@@ -11,14 +11,16 @@ class WindowService {
   /// Abre una nueva ventana de videollamada para el maestro.
   /// 
   /// [channelName]: Nombre del canal de Agora.
-  /// [token]: Token de acceso.
+  /// [token]: Token de acceso Agora.
   /// [userName]: Nombre del maestro.
   /// [meetingId]: ID de la reunión para heartbeat.
+  /// [authToken]: Token de autenticación de Supabase.
   Future<void> openVideoCallWindow({
     required String channelName,
     required String token,
     required String userName,
     String? meetingId,
+    String? authToken,
     int uid = 0,
   }) async {
     final String executablePath = Platform.resolvedExecutable;
@@ -32,6 +34,7 @@ class WindowService {
       '--user=$userName',
       '--uid=$uid',
       if (meetingId != null) '--meetingId=$meetingId',
+      if (authToken != null) '--authToken=$authToken',
     ];
 
     print('🚀 Iniciando ventana secundaria de videollamada...');

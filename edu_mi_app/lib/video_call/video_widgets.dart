@@ -26,34 +26,134 @@ class _RemoteVideoWithFrozenDetectionState
     extends State<RemoteVideoWithFrozenDetection> {
   late Timer _frameCheckTimer;
   bool _isFrozen = false;
-  DateTime? _lastFrameTime;
+  DateTime? _lastActivityTime;
+  bool _hasReceivedFirstFrame = false;
+  late RtcEngineEventHandler _eventHandler;
+  String _lastNetworkQuality = ''; // Para evitar logs repetitivos
 
   @override
   void initState() {
     super.initState();
-    _lastFrameTime = DateTime.now();
+    _lastActivityTime = null;
+    print('🎬 [RemoteVideo ${widget.uid}] initState - Inicializando detector de video congelado');
     
-    // Monitorear cambios de frames cada 1 segundo
+    // Registrar handler para detectar cuando hay movimiento/cambios en video remoto
+    _eventHandler = RtcEngineEventHandler(
+      // Se dispara cuando el estado del video remoto cambia
+      onRemoteVideoStateChanged: (connection, remoteUid, state, reason, elapsed) {
+        if (remoteUid == widget.uid) {
+          print('📹 [RemoteVideo $remoteUid] onRemoteVideoStateChanged: state=${state.name}, reason=${reason.name}');
+          
+          // Importar RemoteVideoState para comparaciones
+          // Estado: DECODING = actualmente decodificando frames
+          if (state.name.contains('Decoding')) {
+            print('✅ [RemoteVideo $remoteUid] Video ACTIVO (Decoding frames)');
+            _recordActivity('onRemoteVideoStateChanged:Decoding');
+          }
+          // Estado: FROZEN = video congelado por congestión de red
+          else if (state.name.contains('Frozen')) {
+            print('❌ [RemoteVideo $remoteUid] Video CONGELADO (Red congestionada)');
+            if (!_isFrozen) {
+              _isFrozen = true;
+              print('🔴 [RemoteVideo $remoteUid] MOSTRANDO AVATAR - Video congelado por red');
+              if (mounted) setState(() {});
+            }
+          }
+          // Estado: STOPPED = video parado (usuario offline, muted, etc)
+          else if (state.name.contains('Stopped')) {
+            print('❌ [RemoteVideo $remoteUid] Video DETENIDO - reason: ${reason.name}');
+            if (!_isFrozen) {
+              _isFrozen = true;
+              print('🔴 [RemoteVideo $remoteUid] MOSTRANDO AVATAR - Video parado/offline');
+              if (mounted) setState(() {});
+            }
+          }
+          // STARTING, CONNECTING = transitorio, no congelado aún
+          else {
+            print('⏳ [RemoteVideo $remoteUid] Estado transitorio: ${state.name}');
+          }
+        }
+      },
+      
+      // Se dispara cuando cambia el tamaño (frecuentemente con video activo)
+      onVideoSizeChanged: (connection, sourceType, uid, width, height, rotation) {
+        if (uid == widget.uid && sourceType == VideoSourceType.videoSourceRemote) {
+          print('📐 [RemoteVideo $uid] onVideoSizeChanged: ${width}x${height}');
+          _recordActivity('onVideoSizeChanged');
+        }
+      },
+      
+      // Se dispara regularmente con calidad de red (cada ~1s cuando hay datos)
+      // NOTA: Solo registramos cambios significativos para no llenar el log
+      onNetworkQuality: (connection, uid, txQuality, rxQuality) {
+        if (uid == widget.uid) {
+          final qualityString = 'tx=${txQuality.name}, rx=${rxQuality.name}';
+          // Solo registrar si cambió la calidad (no repetir el mismo estado)
+          if (qualityString != _lastNetworkQuality) {
+            _lastNetworkQuality = qualityString;
+            print('📊 [RemoteVideo $uid] onNetworkQuality: $qualityString');
+          }
+          _recordActivity('onNetworkQuality');
+        }
+      },
+    );
+    
+    widget.rtcEngine.registerEventHandler(_eventHandler);
+    print('🎬 [RemoteVideo ${widget.uid}] EventHandler registrado');
+    
+    // Timer para chequear cada 1 segundo si hay actividad
+    // (timeout de 2 segundos sin actividad) ⚡ REDUCIDO de 6s a 2s
     _frameCheckTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
+      if (mounted && _lastActivityTime != null) {
         setState(() {
           final now = DateTime.now();
-          // Si no hay actualización en 1 segundo, marcar como congelado
-          if (now.difference(_lastFrameTime!).inSeconds >= 1) {
-            _isFrozen = true;
-            print('❌ Video congelado detectado para UID: ${widget.uid}');
+          final secondsSinceLastActivity = now.difference(_lastActivityTime!).inSeconds;
+          
+          // Si no hay actividad en 2+ segundos, está congelado
+          if (secondsSinceLastActivity >= 2) {
+            if (!_isFrozen) {
+              _isFrozen = true;
+              print('❌ [RemoteVideo ${widget.uid}] Video congelado por timeout (${secondsSinceLastActivity}s sin actividad)');
+              print('🔴 [RemoteVideo ${widget.uid}] MOSTRANDO AVATAR - Timeout sin frames');
+            }
           } else {
-            _isFrozen = false;
-            _lastFrameTime = now;
+            // Hay actividad, video OK
+            if (_isFrozen) {
+              _isFrozen = false;
+              print('✅ [RemoteVideo ${widget.uid}] Video RECUPERADO después de ${secondsSinceLastActivity}s');
+            }
           }
         });
       }
     });
+    print('🎬 [RemoteVideo ${widget.uid}] Timer de detección iniciado (1s intervals, 2s timeout)');
+  }
+
+  void _recordActivity(String source) {
+    if (mounted) {
+      setState(() {
+        // Primer vez que vemos actividad
+        if (!_hasReceivedFirstFrame) {
+          _hasReceivedFirstFrame = true;
+          print('🟢 [RemoteVideo ${widget.uid}] PRIMER FRAME detectado (via $source)');
+        }
+        
+        // Actualizar timestamp de última actividad
+        _lastActivityTime = DateTime.now();
+        
+        // Si estaba congelado, ya no lo está
+        if (_isFrozen) {
+          _isFrozen = false;
+          print('✅ [RemoteVideo ${widget.uid}] VIDEO RECUPERADO - Reanudando stream (via $source)');
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
     _frameCheckTimer.cancel();
+    widget.rtcEngine.unregisterEventHandler(_eventHandler);
     super.dispose();
   }
 

@@ -12,59 +12,81 @@ class WaitingForAssignmentScreen extends StatefulWidget {
 
 class _WaitingForAssignmentScreenState
     extends State<WaitingForAssignmentScreen> {
-  Timer? _checkTimer;
+  // ✅ CAMBIO A REALTIME LISTENER (no polling cada 5 segundos)
+  StreamSubscription<List<Map<String, dynamic>>>? _profileListener;
 
   @override
   void initState() {
     super.initState();
-    // Verificar cada 5 segundos si el usuario ya fue asignado a un grupo
-    _checkTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      _checkGroupAssignment();
-    });
+    _setupRealtimeListener();
   }
 
   @override
   void dispose() {
-    _checkTimer?.cancel();
+    // ✅ Limpiar listener realtime
+    _profileListener?.cancel();
     super.dispose();
   }
 
-  Future<void> _checkGroupAssignment() async {
+  void _setupRealtimeListener() {
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
-
-      final response = await Supabase.instance.client
-          .from('profiles')
-          .select('group_name, role')
-          .eq('user_id', user.id)
-          .single();
-
-      final groupName = response['group_name'];
-      final role = response['role'] ?? 'student';
-
-      // Si ya tiene grupo asignado, redirigir al dashboard correspondiente
-      if (groupName != null && groupName.isNotEmpty) {
-        if (!mounted) return;
-
-        _checkTimer?.cancel();
-
-        if (role == 'administrator') {
-          Navigator.of(
-            context,
-          ).pushNamedAndRemoveUntil('/admin-dashboard', (route) => false);
-        } else if (role == 'teacher') {
-          Navigator.of(
-            context,
-          ).pushNamedAndRemoveUntil('/teacher-dashboard', (route) => false);
-        } else {
-          Navigator.of(
-            context,
-          ).pushNamedAndRemoveUntil('/student-dashboard', (route) => false);
-        }
+      if (user == null) {
+        print('❌ No hay usuario activo para escuchar');
+        return;
       }
+
+      print('🎧 [WaitingScreen] Configurando escucha realtime de perfil...');
+
+      // Usar realtime listener en lugar de polling cada 5 segundos
+      // Esto es MUCHO más eficiente: 0 consultas hasta que cambie el dato
+      _profileListener = Supabase.instance.client
+          .from('profiles')
+          .stream(primaryKey: ['user_id'])
+          .eq('user_id', user.id)
+          .listen(
+            (List<Map<String, dynamic>> records) {
+              if (!mounted) return;
+
+              if (records.isEmpty) {
+                print('⚠️ [WaitingScreen] Perfil no encontrado');
+                return;
+              }
+
+              final profile = records.first;
+              final groupName = profile['group_name'];
+              final role = profile['role'] ?? 'student';
+
+              print(
+                '📡 [WaitingScreen] Cambio detectado - group_name: $groupName, role: $role',
+              );
+
+              // Si ya tiene grupo asignado, redirigir al dashboard correspondiente
+              if (groupName != null && groupName.isNotEmpty) {
+                print('✅ [WaitingScreen] Usuario asignado - redirigiendo...');
+                _profileListener?.cancel();
+
+                if (role == 'administrator') {
+                  Navigator.of(
+                    context,
+                  ).pushNamedAndRemoveUntil('/admin-dashboard', (route) => false);
+                } else if (role == 'teacher') {
+                  Navigator.of(
+                    context,
+                  ).pushNamedAndRemoveUntil('/teacher-dashboard', (route) => false);
+                } else {
+                  Navigator.of(
+                    context,
+                  ).pushNamedAndRemoveUntil('/student-dashboard', (route) => false);
+                }
+              }
+            },
+            onError: (e) {
+              print('❌ [WaitingScreen] Error en realtime listener: $e');
+            },
+          );
     } catch (e) {
-      print('Error verificando asignación: $e');
+      print('❌ [WaitingScreen] Error configurando listener: $e');
     }
   }
 
