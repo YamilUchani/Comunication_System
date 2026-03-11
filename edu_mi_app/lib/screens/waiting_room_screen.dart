@@ -49,7 +49,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
 
         final userName = profile['full_name'] ?? 'Estudiante';
 
-        // TODO: Cambiar estado a "Presente" en la base de datos cuando la columna 'status' exista
+        // TODO: Cambiar estado a "En Llamada" en la base de datos cuando la columna 'status' exista
         // await Supabase.instance.client
         //     .from('attendance')
         //     .update({
@@ -224,7 +224,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
                         ),
                         const SizedBox(height: 50),
 
-                        // Botón para entrar
+                        // Botón para entrar (SIN ESPERAR PERMISO - Para pruebas)
                         ElevatedButton.icon(
                           onPressed: _isLoading ? null : _enterVideoCall,
                           style: ElevatedButton.styleFrom(
