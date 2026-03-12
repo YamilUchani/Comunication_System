@@ -223,122 +223,128 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
               );
             }
 
-            return Stack(
-              children: [
-                // 📹 PANTALLA COMPLETA: Contenido principal (pantalla o cámara)
-                Container(
+            return Center(
+              child: Container(
+                // 📏 Ventana pequeña adaptable (250x200 base, se adapta al ancho)
+                constraints: BoxConstraints(
+                  maxWidth: 400,
+                  maxHeight: 300,
+                ),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.teal, width: 2),
+                  borderRadius: BorderRadius.circular(12),
                   color: Colors.black,
-                  child: _showScreenShare && _isAutoShareActive
-                      ? _buildScreenShareView()
-                      : _buildCameraView(),
                 ),
+                child: Stack(
+                  children: [
+                    // 📹 CONTENIDO PRINCIPAL (pantalla o cámara)
+                    _showScreenShare && _isAutoShareActive
+                        ? _buildScreenShareView()
+                        : _buildCameraView(),
 
-                // 🎛️ CONTROLES VERTICALES EN LA DERECHA
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  bottom: 0,
-                  child: _buildVerticalControlsBar(),
-                ),
-
-                // ========== INDICADOR DE COMPARTICIÓN ==========
-                if (screenController != null)
-                  Positioned(
-                    top: 10,
-                    left: 10,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _isAutoShareActive
-                            ? Colors.green.withOpacity(0.8)
-                            : Colors.orange.withOpacity(0.8),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _isAutoShareActive
-                                ? Icons.check_circle
-                                : Icons.hourglass_empty,
-                            color: Colors.white,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _isAutoShareActive
-                                ? 'Pantalla compartida'
-                                : 'Compartiendo...',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
+                    // 🎛️ CONTROLES VERTICALES EN LA DERECHA
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      child: _buildVerticalControlsBar(),
                     ),
-                  ),
 
-                // ========== DIÁLOGO DE CONFIRMACIÓN ==========
-                if (_showExitConfirm)
-                  Container(
-                    color: Colors.black54,
-                    child: Center(
-                      child: Dialog(
-                        backgroundColor: Colors.grey[900],
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
+                    // ========== INDICADOR DE COMPARTICIÓN ==========
+                    if (screenController != null && _isAutoShareActive)
+                      Positioned(
+                        top: 4,
+                        left: 4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.9),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Text(
-                                '¿Salir de la videollamada?',
+                              Icon(
+                                Icons.check_circle,
+                                color: Colors.white,
+                                size: 12,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                'Compartida',
                                 style: TextStyle(
                                   color: Colors.white,
-                                  fontSize: 16,
+                                  fontSize: 10,
                                   fontWeight: FontWeight.bold,
                                 ),
-                              ),
-                              const SizedBox(height: 20),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceEvenly,
-                                children: [
-                                  ElevatedButton(
-                                    onPressed: () {
-                                      setState(() {
-                                        _showExitConfirm = false;
-                                      });
-                                    },
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.grey[700],
-                                    ),
-                                    child: const Text('Cancelar'),
-                                  ),
-                                  ElevatedButton(
-                                    onPressed: _exitMeeting,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.red,
-                                    ),
-                                    child: const Text('Salir'),
-                                  ),
-                                ],
                               ),
                             ],
                           ),
                         ),
                       ),
-                    ),
-                  ),
-              ],
+                  ],
+                ),
+              ),
             );
           },
         ),
       ),
+    );
+  }
+
+  // ========== DIÁLOGO DE CONFIRMACIÓN ==========
+  void _showExitDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.grey[900],
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  '¿Salir de la videollamada?',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey[700],
+                      ),
+                      child: const Text('Cancelar'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _exitMeeting();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                      ),
+                      child: const Text('Salir'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -443,39 +449,39 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
     );
   }
 
-  /// 🎛️ Barra de controles VERTICAL (sidebar derecha)
+  /// 🎛️ Barra de controles VERTICAL (sidebar derecha - compacta)
   Widget _buildVerticalControlsBar() {
     return Container(
-      width: 80,
+      width: 50,
       color: Colors.black87,
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // 📹 Toggle Cámara
           _buildVerticalControlButton(
             icon: _isCameraOn ? Icons.videocam : Icons.videocam_off,
-            label: 'Cámara',
+            label: 'Cam',
             color: _isCameraOn ? Colors.white : Colors.red,
             onPressed: _toggleCamera,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
 
           // 🎤 Toggle Micrófono
           _buildVerticalControlButton(
             icon: _isMicOn ? Icons.mic : Icons.mic_off,
-            label: 'Micrófono',
+            label: 'Mic',
             color: _isMicOn ? Colors.white : Colors.red,
             onPressed: _toggleMic,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
 
           // 📺 Compartir Pantalla
           _buildVerticalControlButton(
             icon: _isAutoShareActive
                 ? Icons.stop_screen_share
                 : Icons.screen_share,
-            label: 'Pantalla',
+            label: 'Share',
             color: _isAutoShareActive ? Colors.orange : Colors.white,
             onPressed: () {
               if (_isAutoShareActive) {
@@ -485,7 +491,7 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
               }
             },
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
 
           // 💬 Chat
           _buildVerticalControlButton(
@@ -504,17 +510,15 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
               );
             },
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
 
           // ❌ Salir
           _buildVerticalControlButton(
             icon: Icons.call_end,
-            label: 'Salir',
+            label: 'Exit',
             color: Colors.red,
             onPressed: () {
-              setState(() {
-                _showExitConfirm = true;
-              });
+              _showExitDialog();
             },
           ),
         ],
@@ -536,28 +540,28 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: color.withOpacity(0.2),
-                border: Border.all(color: color, width: 2),
+                border: Border.all(color: color, width: 1.5),
               ),
               child: Icon(
                 icon,
                 color: color,
-                size: 20,
+                size: 16,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 3),
             Text(
               label,
               style: TextStyle(
                 color: color,
-                fontSize: 10,
+                fontSize: 8,
                 fontWeight: FontWeight.bold,
               ),
               textAlign: TextAlign.center,
-              maxLines: 2,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
           ],
