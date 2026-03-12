@@ -225,52 +225,27 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
 
             return Stack(
               children: [
-                // 📹 LAYOUT VERTICAL: Pantalla arriba, cámara abajo
-                Column(
-                  children: [
-                    // ========== ARRIBA: PANTALLA COMPARTIDA O CÁMARA ==========
-                    Expanded(
-                      flex: 2,
-                      child: Container(
-                        color: Colors.black87,
-                        child: _showScreenShare && _isAutoShareActive
-                            ? _buildScreenShareView()
-                            : _buildCameraView(),
-                      ),
-                    ),
-
-                    // ========== SEPARADOR ==========
-                    Container(
-                      height: 2,
-                      color: Colors.grey[800],
-                    ),
-
-                    // ========== ABAJO: CÁMARA PEQUEÑA O PANTALLA ALTERNATIVA ==========
-                    Expanded(
-                      flex: 1,
-                      child: Container(
-                        color: Colors.black,
-                        child: _showScreenShare && _isAutoShareActive
-                            ? _buildCameraViewSmall() // Si hay pantalla, mostrar cámara pequeña
-                            : _buildScreenShareSmall(), // Si no, mostrar pantalla alternativa
-                      ),
-                    ),
-                  ],
+                // 📹 PANTALLA COMPLETA: Contenido principal (pantalla o cámara)
+                Container(
+                  color: Colors.black,
+                  child: _showScreenShare && _isAutoShareActive
+                      ? _buildScreenShareView()
+                      : _buildCameraView(),
                 ),
 
-                // ========== CONTROLES EN LA PARTE INFERIOR ==========
+                // 🎛️ CONTROLES VERTICALES EN LA DERECHA
                 Positioned(
-                  bottom: 0,
-                  left: 0,
                   right: 0,
-                  child: _buildControlsBar(),
+                  top: 0,
+                  bottom: 0,
+                  child: _buildVerticalControlsBar(),
                 ),
 
                 // ========== INDICADOR DE COMPARTICIÓN ==========
                 if (screenController != null)
                   Positioned(
                     top: 10,
-                    right: 10,
+                    left: 10,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -468,34 +443,39 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
     );
   }
 
-  /// 🎛️ Barra de controles
-  Widget _buildControlsBar() {
+  /// 🎛️ Barra de controles VERTICAL (sidebar derecha)
+  Widget _buildVerticalControlsBar() {
     return Container(
+      width: 80,
       color: Colors.black87,
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // 📹 Toggle Cámara
-          _buildControlButton(
+          _buildVerticalControlButton(
             icon: _isCameraOn ? Icons.videocam : Icons.videocam_off,
-            label: _isCameraOn ? 'Cámara' : 'Apagada',
+            label: 'Cámara',
             color: _isCameraOn ? Colors.white : Colors.red,
             onPressed: _toggleCamera,
           ),
+          const SizedBox(height: 16),
 
           // 🎤 Toggle Micrófono
-          _buildControlButton(
+          _buildVerticalControlButton(
             icon: _isMicOn ? Icons.mic : Icons.mic_off,
-            label: _isMicOn ? 'Micrófono' : 'Mudo',
+            label: 'Micrófono',
             color: _isMicOn ? Colors.white : Colors.red,
             onPressed: _toggleMic,
           ),
+          const SizedBox(height: 16),
 
           // 📺 Compartir Pantalla
-          _buildControlButton(
-            icon: _isAutoShareActive ? Icons.stop_screen_share : Icons.screen_share,
-            label: _isAutoShareActive ? 'Parar' : 'Pantalla',
+          _buildVerticalControlButton(
+            icon: _isAutoShareActive
+                ? Icons.stop_screen_share
+                : Icons.screen_share,
+            label: 'Pantalla',
             color: _isAutoShareActive ? Colors.orange : Colors.white,
             onPressed: () {
               if (_isAutoShareActive) {
@@ -505,9 +485,10 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
               }
             },
           ),
+          const SizedBox(height: 16),
 
           // 💬 Chat
-          _buildControlButton(
+          _buildVerticalControlButton(
             icon: Icons.chat,
             label: 'Chat',
             color: Colors.white,
@@ -523,9 +504,10 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
               );
             },
           ),
+          const SizedBox(height: 16),
 
           // ❌ Salir
-          _buildControlButton(
+          _buildVerticalControlButton(
             icon: Icons.call_end,
             label: 'Salir',
             color: Colors.red,
@@ -540,8 +522,8 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
     );
   }
 
-  /// Botón de control individual
-  Widget _buildControlButton({
+  /// Botón de control VERTICAL individual
+  Widget _buildVerticalControlButton({
     required IconData icon,
     required String label,
     required Color color,
@@ -554,7 +536,7 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: color.withOpacity(0.2),
@@ -563,17 +545,20 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
               child: Icon(
                 icon,
                 color: color,
-                size: 24,
+                size: 20,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
               label,
               style: TextStyle(
                 color: color,
-                fontSize: 11,
+                fontSize: 10,
                 fontWeight: FontWeight.bold,
               ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
