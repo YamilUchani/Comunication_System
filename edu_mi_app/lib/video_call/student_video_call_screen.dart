@@ -310,20 +310,30 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
                   children: [
                     // 📹 CONTENIDO PRINCIPAL (pantalla o cámara)
                     if (_isAutoShareActive && _showScreenShare)
-                      // Cuando está compartiendo: mostrar indicador + cámara pequeña
+                      // Cuando está compartiendo: mostrar indicador visual
                       Container(
                         color: Colors.black,
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(
-                              Icons.screen_share,
-                              size: 80,
-                              color: Colors.orange.withOpacity(0.7),
+                            TweenAnimationBuilder<double>(
+                              tween: Tween(begin: 0.8, end: 1.2),
+                              duration: const Duration(milliseconds: 1000),
+                              onEnd: () {},
+                              builder: (context, value, child) {
+                                return Transform.scale(
+                                  scale: value,
+                                  child: Icon(
+                                    Icons.videocam,
+                                    size: 80,
+                                    color: Colors.orange.withOpacity(0.9),
+                                  ),
+                                );
+                              },
                             ),
                             const SizedBox(height: 16),
                             const Text(
-                              '📺 Compartiendo Pantalla',
+                              '📺 Pantalla Activa',
                               style: TextStyle(
                                 color: Colors.orange,
                                 fontSize: 16,
@@ -332,17 +342,40 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
                             ),
                             const SizedBox(height: 8),
                             const Text(
-                              'Los demás pueden ver tu pantalla',
+                              'Los demás ven tu pantalla',
                               style: TextStyle(
                                 color: Colors.white54,
                                 fontSize: 12,
                               ),
                             ),
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: const BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.orange,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'En directo',
+                                  style: TextStyle(
+                                    color: Colors.orange,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
                       )
                     else
-                      // Vista normal: cámara o ícono de cámara apagada
+                      // Vista normal: cámara
                       _buildCameraView(),
 
                     // 🎛️ CONTROLES VERTICALES EN LA DERECHA
