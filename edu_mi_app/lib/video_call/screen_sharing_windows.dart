@@ -27,6 +27,7 @@ class ScreenShareController extends ChangeNotifier {
 
   final ValueNotifier<bool> isSharingNotifier = ValueNotifier(false);
   bool get isSharing => isSharingNotifier.value;
+  bool get isInitialized => _isInitialized;
 
   final List<CaptureSource> _availableDisplays = [];
   final List<CaptureSource> _availableWindows = [];

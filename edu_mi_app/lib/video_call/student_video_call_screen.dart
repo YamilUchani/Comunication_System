@@ -87,16 +87,7 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
           screenController = ScreenShareController(engine: controller.engine);
         });
         print('[INIT] ✅ ScreenShareController creado');
-
-        // 📺 Auto-compartir pantalla después de que se inicialize todo
-        // Esperamos 2 segundos para asegurar que todo esté listo
-        print('[INIT] ⏳ Esperando 2 segundos antes de compartir pantalla...');
-        await Future.delayed(const Duration(milliseconds: 2000));
-        
-        if (mounted) {
-          print('[INIT] 🚀 Iniciando auto-compartición...');
-          _autoStartScreenShare();
-        }
+        print('[INIT] ✅ Listo para compartir pantalla manualmente');
       }
     } catch (e) {
       print('[INIT] ❌ Error: $e');
@@ -113,55 +104,51 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
     return controller.localUid;
   }
 
-  /// 📺 Auto-compartir pantalla al entrar
-  Future<void> _autoStartScreenShare() async {
+  /// 📺 Iniciar compartición de pantalla (se llama cuando usuario hace clic)
+  Future<void> _startScreenShare() async {
     try {
       if (screenController == null) {
-        print('[AUTO-SHARE] ❌ screenController es null');
+        print('[SCREEN-SHARE] ❌ screenController es null');
+        _showError('Error: Controller no inicializado');
         return;
       }
 
-      print('[AUTO-SHARE] Inicializando auto-compartir pantalla...');
+      if (_isAutoShareActive) {
+        print('[SCREEN-SHARE] Ya está compartiendo, deteniendo...');
+        await _stopScreenShare();
+        return;
+      }
+
+      print('[SCREEN-SHARE] 📺 Iniciando compartición de pantalla...');
       
       // Inicializar y obtener displays disponibles
-      try {
-        await screenController!.initialize();
-        print('[AUTO-SHARE] ✅ Inicialización completa');
-      } catch (e) {
-        print('[AUTO-SHARE] ❌ Error en initialize(): $e');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error al inicializar compartición: $e'),
-              duration: const Duration(seconds: 3),
-            ),
-          );
+      if (!screenController!.isInitialized) {
+        print('[SCREEN-SHARE] 🔍 Buscando pantallas disponibles...');
+        try {
+          await screenController!.initialize();
+          print('[SCREEN-SHARE] ✅ Inicialización completa');
+        } catch (e) {
+          print('[SCREEN-SHARE] ❌ Error en initialize(): $e');
+          _showError('No se pueden obtener las pantallas: $e');
+          return;
         }
-        return;
       }
 
       // Verificar displays disponibles
-      print('[AUTO-SHARE] Displays disponibles: ${screenController!.availableDisplays.length}');
+      print('[SCREEN-SHARE] Displays disponibles: ${screenController!.availableDisplays.length}');
       if (screenController!.availableDisplays.isEmpty) {
-        print('[AUTO-SHARE] ❌ No hay displays disponibles');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('❌ No se encontraron pantallas para compartir'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
+        print('[SCREEN-SHARE] ❌ No hay displays disponibles');
+        _showError('No se encontraron pantallas para compartir');
         return;
       }
 
       // Iniciar compartición
       final primaryDisplay = screenController!.availableDisplays.first;
-      print('[AUTO-SHARE] 📺 Compartiendo: ${primaryDisplay.name}');
+      print('[SCREEN-SHARE] 📺 Compartiendo: ${primaryDisplay.name}');
       
       try {
         await screenController!.startSharing(primaryDisplay);
-        print('[AUTO-SHARE] ✅ Compartición iniciada');
+        print('[SCREEN-SHARE] ✅ Compartición iniciada exitosamente');
 
         if (mounted) {
           setState(() {
@@ -170,35 +157,38 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
           });
         }
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ 📺 Pantalla compartida automáticamente'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
+        _showSuccess('📺 Pantalla compartida');
       } catch (e) {
-        print('[AUTO-SHARE] ❌ Error en startSharing(): $e');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error al compartir pantalla: $e'),
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
+        print('[SCREEN-SHARE] ❌ Error en startSharing(): $e');
+        _showError('Error al compartir pantalla: $e');
       }
     } catch (e) {
-      print('[AUTO-SHARE] ❌ Error general: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error inesperado: $e'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
+      print('[SCREEN-SHARE] ❌ Error general: $e');
+      _showError('Error inesperado: $e');
+    }
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  void _showSuccess(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
     }
   }
 
@@ -564,13 +554,7 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
                 : Icons.screen_share,
             label: 'Share',
             color: _isAutoShareActive ? Colors.orange : Colors.white,
-            onPressed: () {
-              if (_isAutoShareActive) {
-                _stopScreenShare();
-              } else {
-                _autoStartScreenShare();
-              }
-            },
+            onPressed: _startScreenShare,
           ),
           const SizedBox(height: 8),
 
