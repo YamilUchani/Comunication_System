@@ -134,41 +134,50 @@ class ScreenShareController extends ChangeNotifier {
     try {
       if (!_isInitialized) await initialize();
 
+      print('[SCREEN-SHARE] 📺 Iniciando compartición de: ${source.name}');
+      print('[SCREEN-SHARE]    ID: ${source.id}');
+      print('[SCREEN-SHARE]    Región: ${source.region.x}, ${source.region.y}, ${source.region.width}x${source.region.height}');
+      print('[SCREEN-SHARE]    Display: ${source.isDisplay}');
+
       final captureParams = const ScreenCaptureParameters(
         frameRate: 15,
         bitrate: 1200,
-        // Evita capturar el cursor del ratón si no lo deseas
         captureMouseCursor: true,
       );
+      
       if (source.isDisplay) {
+        print('[SCREEN-SHARE] 📺 Llamando startScreenCaptureByDisplayId...');
         await _engine.startScreenCaptureByDisplayId(
           displayId: source.id,
-          regionRect: source.region,
+          regionRect: Rectangle(x: 0, y: 0, width: 0, height: 0), // Región vacía = pantalla completa
           captureParams: captureParams,
         );
-        print(
-          '[LOCAL] startScreenCaptureByDisplayId llamado. ¡El usuario local está compartiendo pantalla!',
-        );
+        print('[SCREEN-SHARE] ✅ startScreenCaptureByDisplayId completado');
       } else {
+        print('[SCREEN-SHARE] 🪟 Llamando startScreenCaptureByWindowId...');
         await _engine.startScreenCaptureByWindowId(
           windowId: source.id,
-          regionRect: source.region,
+          regionRect: Rectangle(x: 0, y: 0, width: 0, height: 0), // Región vacía = ventana completa
           captureParams: captureParams,
         );
-        print(
-          '[LOCAL] startScreenCaptureByWindowId llamado. ¡El usuario local está compartiendo pantalla!',
-        );
+        print('[SCREEN-SHARE] ✅ startScreenCaptureByWindowId completado');
       }
+      
+      print('[SCREEN-SHARE] 🔧 Actualizando ChannelMediaOptions...');
       await _engine.updateChannelMediaOptions(
         const ChannelMediaOptions(
-          publishCameraTrack: false, // Apagamos la cámara
-          publishScreenTrack: true, // Encendemos la pantalla
+          publishCameraTrack: false,
+          publishScreenTrack: true,
         ),
       );
+      print('[SCREEN-SHARE] ✅ ChannelMediaOptions actualizado');
+      
       isSharingNotifier.value = true;
       notifyListeners();
+      
+      print('[SCREEN-SHARE] ✅✅✅ Pantalla compartida exitosamente');
     } catch (e) {
-      debugPrint('Error starting screen sharing: $e');
+      print('[SCREEN-SHARE] ❌ Error: $e');
       isSharingNotifier.value = false;
       notifyListeners();
       rethrow;
