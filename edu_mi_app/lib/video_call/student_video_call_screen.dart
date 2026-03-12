@@ -73,21 +73,31 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
 
   Future<void> _initAgora() async {
     try {
+      print('[INIT] 🔄 Inicializando Agora...');
       await controller.init();
+      print('[INIT] ✅ Agora inicializado');
+      
       localUid = await _getLocalUid();
+      print('[INIT] ✅ Local UID: $localUid');
 
       if (mounted) {
         setState(() {
           screenController = ScreenShareController(engine: controller.engine);
         });
+        print('[INIT] ✅ ScreenShareController creado');
 
         // 📺 Auto-compartir pantalla después de que se inicialize todo
-        await Future.delayed(const Duration(milliseconds: 1000));
+        // Esperamos 2 segundos para asegurar que todo esté listo
+        print('[INIT] ⏳ Esperando 2 segundos antes de compartir pantalla...');
+        await Future.delayed(const Duration(milliseconds: 2000));
+        
         if (mounted) {
+          print('[INIT] 🚀 Iniciando auto-compartición...');
           _autoStartScreenShare();
         }
       }
     } catch (e) {
+      print('[INIT] ❌ Error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error al inicializar: $e')),
@@ -104,39 +114,86 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
   /// 📺 Auto-compartir pantalla al entrar
   Future<void> _autoStartScreenShare() async {
     try {
-      if (screenController == null) return;
+      if (screenController == null) {
+        print('[AUTO-SHARE] ❌ screenController es null');
+        return;
+      }
 
       print('[AUTO-SHARE] Inicializando auto-compartir pantalla...');
-      await screenController!.initialize();
+      
+      // Inicializar y obtener displays disponibles
+      try {
+        await screenController!.initialize();
+        print('[AUTO-SHARE] ✅ Inicialización completa');
+      } catch (e) {
+        print('[AUTO-SHARE] ❌ Error en initialize(): $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error al inicializar compartición: $e'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+        return;
+      }
 
-      if (screenController!.availableDisplays.isNotEmpty) {
-        final primaryDisplay = screenController!.availableDisplays.first;
-        print('[AUTO-SHARE] Compartiendo: ${primaryDisplay.name}');
+      // Verificar displays disponibles
+      print('[AUTO-SHARE] Displays disponibles: ${screenController!.availableDisplays.length}');
+      if (screenController!.availableDisplays.isEmpty) {
+        print('[AUTO-SHARE] ❌ No hay displays disponibles');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('❌ No se encontraron pantallas para compartir'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+        return;
+      }
+
+      // Iniciar compartición
+      final primaryDisplay = screenController!.availableDisplays.first;
+      print('[AUTO-SHARE] 📺 Compartiendo: ${primaryDisplay.name}');
+      
+      try {
         await screenController!.startSharing(primaryDisplay);
+        print('[AUTO-SHARE] ✅ Compartición iniciada');
 
         if (mounted) {
           setState(() {
             _isAutoShareActive = true;
-            _showScreenShare = true; // Mostrar pantalla por defecto
+            _showScreenShare = true;
           });
         }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('📺 Pantalla compartida automáticamente'),
+              content: Text('✅ 📺 Pantalla compartida automáticamente'),
               duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } catch (e) {
+        print('[AUTO-SHARE] ❌ Error en startSharing(): $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error al compartir pantalla: $e'),
+              duration: const Duration(seconds: 3),
             ),
           );
         }
       }
     } catch (e) {
-      print('[AUTO-SHARE] Error: $e');
+      print('[AUTO-SHARE] ❌ Error general: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('No se pudo compartir pantalla: $e'),
-            duration: const Duration(seconds: 2),
+            content: Text('Error inesperado: $e'),
+            duration: const Duration(seconds: 3),
           ),
         );
       }
@@ -146,18 +203,40 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
   /// ⏹️ Detener compartición de pantalla
   Future<void> _stopScreenShare() async {
     try {
-      if (screenController != null) {
-        print('[STOP-SHARE] Deteniendo...');
-        await screenController!.stopSharing();
-        if (mounted) {
-          setState(() {
-            _isAutoShareActive = false;
-            _showScreenShare = false; // Volver a cámara
-          });
-        }
+      if (screenController == null) {
+        print('[STOP-SHARE] ❌ screenController es null');
+        return;
+      }
+      
+      print('[STOP-SHARE] ⏹️ Deteniendo compartición...');
+      await screenController!.stopSharing();
+      
+      print('[STOP-SHARE] ✅ Compartición detenida');
+      if (mounted) {
+        setState(() {
+          _isAutoShareActive = false;
+          _showScreenShare = false;
+        });
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⏹️ Compartición detenida'),
+            duration: Duration(seconds: 1),
+          ),
+        );
       }
     } catch (e) {
-      print('[STOP-SHARE] Error: $e');
+      print('[STOP-SHARE] ❌ Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al detener compartición: $e'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
     }
   }
 
