@@ -1,0 +1,290 @@
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:io';
+import 'package:window_manager/window_manager.dart';
+import '../services/window_service.dart';
+
+class StudentWaitingRoomScreen extends StatefulWidget {
+  final String channelName;
+  final String token;
+  final String userName;
+  final String meetingTitle;
+  final String? meetingId;
+  final String? authToken;
+
+  const StudentWaitingRoomScreen({
+    super.key,
+    required this.channelName,
+    required this.token,
+    required this.userName,
+    required this.meetingTitle,
+    this.meetingId,
+    this.authToken,
+  });
+
+  @override
+  State<StudentWaitingRoomScreen> createState() =>
+      _StudentWaitingRoomScreenState();
+}
+
+class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> {
+  bool _isJoining = false;
+  bool _isMinimized = false;
+  Size _originalWindowSize = const Size(250, 200);
+  Offset _originalWindowPosition = const Offset(20, 20);
+  Offset _bubblePosition = const Offset(10, 10);
+  Offset _dragStart = Offset.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeWindow();
+  }
+
+  Future<void> _initializeWindow() async {
+    if (!Platform.isWindows) return;
+    
+    try {
+      await windowManager.ensureInitialized();
+      final size = await windowManager.getSize();
+      final position = await windowManager.getPosition();
+      
+      setState(() {
+        _originalWindowSize = size;
+        _originalWindowPosition = position;
+      });
+    } catch (e) {
+      print('Error inicializando window manager: $e');
+    }
+  }
+
+  Future<void> _expandFromBubble() async {
+    if (!Platform.isWindows) {
+      setState(() => _isMinimized = false);
+      return;
+    }
+
+    try {
+      await windowManager.setSize(_originalWindowSize);
+      await windowManager.setPosition(_originalWindowPosition);
+      setState(() => _isMinimized = false);
+    } catch (e) {
+      print('Error expandiendo ventana: $e');
+    }
+  }
+
+  void _onBubbleDragUpdate(DragUpdateDetails details) {
+    final newPosition = _bubblePosition + details.delta;
+    setState(() => _bubblePosition = newPosition);
+  }
+
+  Future<void> _joinMeeting() async {
+    setState(() => _isJoining = true);
+
+    try {
+      print('🚀 Estudiante entrando a videollamada desde sala de espera...');
+
+      await WindowService().openVideoCallWindow(
+        channelName: widget.channelName,
+        token: widget.token,
+        userName: widget.userName,
+        userRole: 'student', // 🎓 Indicar que es estudiante para usar StudentVideoCallScreen
+        meetingId: widget.meetingId,
+        authToken: widget.authToken,
+        windowWidth: 300,
+        windowHeight: 900,
+      );
+
+      // Cerrar la ventana de sala de espera después de abrir la videollamada
+      print('🔴 Cerrando ventana de sala de espera...');
+      exit(0);
+    } catch (e) {
+      print('❌ Error al entrar a la reunión: $e');
+      if (mounted) {
+        setState(() => _isJoining = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Si está minimizado, mostrar solo el bubble flotante
+    if (_isMinimized) {
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Stack(
+          children: [
+            // Bubble flotante arrastrable
+            Positioned(
+              top: _bubblePosition.dy,
+              left: _bubblePosition.dx,
+              child: GestureDetector(
+                onTap: _expandFromBubble,
+                onPanUpdate: _onBubbleDragUpdate,
+                child: Container(
+                  width: 70,
+                  height: 70,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.orange,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.5),
+                        blurRadius: 10,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.hourglass_bottom,
+                    color: Colors.white,
+                    size: 32,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Vista normal si no está minimizado - Pequeño rectangulo flotante
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          Positioned(
+            top: 10,
+            left: 10,
+            child: Container(
+              width: 200,
+              decoration: BoxDecoration(
+                color: const Color(0xFF212121),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.orange, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.5),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Título reunión
+                  Text(
+                    widget.meetingTitle,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+
+                  // Nombre estudiante
+                  Text(
+                    widget.userName,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Fila de botones flotantes
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // Botón de llamada al maestro
+                      GestureDetector(
+                        onTap: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('📞 Llamando al maestro...'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          width: 45,
+                          height: 45,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.blue[700],
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.blue.withOpacity(0.5),
+                                blurRadius: 8,
+                                spreadRadius: 1,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.phone,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                        ),
+                      ),
+
+                      // Botón de entrar
+                      GestureDetector(
+                        onTap: _isJoining ? null : _joinMeeting,
+                        child: Container(
+                          width: 45,
+                          height: 45,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _isJoining
+                                ? const Color(0xFFFFA500).withOpacity(0.7)
+                                : Colors.orange,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.orange.withOpacity(0.5),
+                                blurRadius: 8,
+                                spreadRadius: 1,
+                              ),
+                            ],
+                          ),
+                          child: _isJoining
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.videocam,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

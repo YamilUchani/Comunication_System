@@ -12,12 +12,14 @@ import 'screens/channel_input_screen.dart';
 import 'screens/admin_dashboard.dart';
 import 'screens/teacher_dashboard.dart';
 import 'screens/student_dashboard.dart';
+import 'screens/student_waiting_room_screen.dart';
 import 'screens/waiting_for_assignment_screen.dart';
-import 'screens/waiting_room_screen.dart';
+import 'package:window_manager/window_manager.dart';
 import 'services/windows_service.dart';
 import 'services/window_service.dart';
 import 'services/deep_link_service.dart';
 import 'video_call/video_call_screen.dart';
+import 'video_call/student_video_call_screen.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 bool _isAuthInProgress = false;
@@ -55,84 +57,120 @@ Future<void> main(List<String> args) async {
     
     final mode = _getArgValue(args, 'mode') ?? 'video-call';
     final channel = _getArgValue(args, 'channel');
+    final token = _getArgValue(args, 'token');
     final userName = _getArgValue(args, 'user') ?? 'Usuario';
+    final userRole = _getArgValue(args, 'userRole') ?? 'teacher'; // 'student', 'teacher', 'admin'
+    final uidStr = _getArgValue(args, 'uid');
+    final uid = uidStr != null ? int.tryParse(uidStr) : null;
     final meetingId = _getArgValue(args, 'meetingId');
     final authToken = _getArgValue(args, 'authToken');
+    final meetingTitle = _getArgValue(args, 'meetingTitle');
+    final windowWidthStr = _getArgValue(args, 'windowWidth');
+    final windowHeightStr = _getArgValue(args, 'windowHeight');
+    final windowWidth = windowWidthStr != null ? int.tryParse(windowWidthStr) : null;
+    final windowHeight = windowHeightStr != null ? int.tryParse(windowHeightStr) : null;
 
-    // --- MODO SALA DE ESPERA ---
-    if (mode == 'waiting-room') {
-      final userRole = _getArgValue(args, 'role') ?? 'student';
-      
-      if (channel != null) {
-        print('⏳ [CHILD PROCESS] Preparando WaitingRoomScreen...');
-        print('   - Canal: $channel, Usuario: $userName, Rol: $userRole');
-        
-        try {
-          runApp(MaterialApp(
-            debugShowCheckedModeBanner: false,
-            theme: ThemeData(
-              primarySwatch: Colors.teal,
-              scaffoldBackgroundColor: Colors.black,
+    final appId = dotenv.env['AGORA_APP_ID'] ?? '';
+    print('   - Modo: $mode');
+    print('   - Agora App ID cargado: ${appId.isNotEmpty}');
+
+    if (channel != null && token != null) {
+      try {
+        if (mode == 'waiting-room') {
+          // --- MODO SALA DE ESPERA ---
+          print('⏳ [CHILD PROCESS] Preparando StudentWaitingRoomScreen...');
+          print('   - Canal: $channel, MeetingTitle: $meetingTitle');
+
+          // Inicializar window manager para control de ventana
+          if (Platform.isWindows) {
+            await windowManager.ensureInitialized();
+            // Establecer tamaño minúsculo para la sala de espera
+            await windowManager.setSize(const Size(250, 200));
+            await windowManager.setPosition(const Offset(20, 20));
+          }
+
+          runApp(
+            MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: ThemeData(
+                primarySwatch: Colors.orange,
+                scaffoldBackgroundColor: const Color(0xFF212121),
+              ),
+              home: Scaffold(
+                backgroundColor: const Color(0xFF212121),
+                body: Center(
+                  child: StudentWaitingRoomScreen(
+                    channelName: channel,
+                    token: token,
+                    userName: userName,
+                    meetingTitle: meetingTitle ?? 'Reunión',
+                    meetingId: meetingId,
+                    authToken: authToken,
+                  ),
+                ),
+              ),
             ),
-            home: WaitingRoomScreen(
-              channelName: channel,
-              userName: userName,
-              userRole: userRole,
-              meetingId: meetingId,
-              authToken: authToken,
-            ),
-          ));
-          return;
-        } catch (e, stack) {
-          print('❌ [CHILD PROCESS] Error FATAL en WaitingRoom: $e');
-          print(stack);
-          exit(1);
+          );
+        } else {
+          // --- MODO VIDEOLLAMADA (POR DEFECTO) ---
+          print('🎬 [CHILD PROCESS] Preparando VideoCallScreen...');
+          print('   - Canal: $channel, Rol: $userRole, UID: $uid, MeetingID: $meetingId');
+
+          // Establecer tamaño de ventana si se proporcionó
+          if (Platform.isWindows && (windowWidth != null || windowHeight != null)) {
+            await windowManager.ensureInitialized();
+            if (windowWidth != null && windowHeight != null) {
+              await windowManager.setSize(Size(windowWidth.toDouble(), windowHeight.toDouble()));
+            }
+          }
+
+          // 🎓 Si es estudiante, usar StudentVideoCallScreen (sistema diferente con auto-compartir pantalla)
+          if (userRole == 'student') {
+            print('🎓 [STUDENT VIDEOCALL] Iniciando sistema de videollamada para estudiante...');
+            runApp(MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: ThemeData(
+                primarySwatch: Colors.teal,
+                scaffoldBackgroundColor: Colors.black,
+              ),
+              home: StudentVideoCallScreen(
+                channelName: channel,
+                token: token,
+                userName: userName,
+                uid: uid,
+                meetingId: meetingId,
+                authToken: authToken,
+              ),
+            ));
+          } else {
+            // 👨‍🏫 Maestro y Admin usan el VideoCallScreen original
+            print('👨‍🏫 [TEACHER/ADMIN VIDEOCALL] Iniciando sistema de videollamada...');
+            runApp(MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: ThemeData(
+                primarySwatch: Colors.teal,
+                scaffoldBackgroundColor: Colors.black,
+              ),
+              home: VideoCallScreen(
+                channelName: channel,
+                token: token,
+                userName: userName,
+                uid: uid,
+                meetingId: meetingId,
+                authToken: authToken,
+              ),
+            ));
+          }
         }
-      } else {
-        print('❌ [CHILD PROCESS] Faltan argumentos críticos para sala de espera (channel)');
+        return;
+      } catch (e, stack) {
+        print('❌ [CHILD PROCESS] Error FATAL al arrancar: $e');
+        print(stack);
         exit(1);
       }
-    }
-    
-    // --- MODO VIDEOLLAMADA ---
-    else if (mode == 'video-call') {
-      final token = _getArgValue(args, 'token');
-      final uidStr = _getArgValue(args, 'uid');
-      final uid = uidStr != null ? int.tryParse(uidStr) : null;
-
-      final appId = dotenv.env['AGORA_APP_ID'] ?? '';
-      print('   - Agora App ID cargado: ${appId.isNotEmpty}');
-
-      if (channel != null && token != null) {
-        print('🎬 [CHILD PROCESS] Preparando VideoCallScreen...');
-        print('   - Canal: $channel, UID: $uid, MeetingID: $meetingId, AuthToken: ${authToken != null ? '✅' : '❌'}');
-
-        try {
-          runApp(MaterialApp(
-            debugShowCheckedModeBanner: false,
-            theme: ThemeData(
-              primarySwatch: Colors.teal,
-              scaffoldBackgroundColor: Colors.black,
-            ),
-            home: VideoCallScreen(
-              channelName: channel,
-              token: token,
-              userName: userName,
-              uid: uid,
-              meetingId: meetingId,
-              authToken: authToken,
-            ),
-          ));
-          return;
-        } catch (e, stack) {
-          print('❌ [CHILD PROCESS] Error FATAL al arrancar: $e');
-          print(stack);
-          exit(1);
-        }
-      } else {
-        print('❌ [CHILD PROCESS] Faltan argumentos críticos (channel/token)');
-        exit(1);
-      }
+    } else {
+      print('❌ [CHILD PROCESS] Faltan argumentos críticos (channel/token)');
+      exit(1);
     }
   }
 

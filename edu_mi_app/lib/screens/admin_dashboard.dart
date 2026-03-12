@@ -650,12 +650,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
       final userName = profile['full_name'] ?? 'Admin';
 
       if (mounted) {
-        print('🚀 Lanzando sala de espera...');
+        print('🚀 Lanzando ventana de videollamada independiente...');
         
-        await WindowService().openWaitingRoomWindow(
+        await WindowService().openVideoCallWindow(
           channelName: meetingData['channelName'],
+          token: meetingData['token'],
           userName: userName,
-          userRole: 'admin',
+          userRole: 'admin', // 🔐 Identificar como admin
           meetingId: meetingData['id'], // 🆔 Pasar ID de la reunión
           authToken: session?.accessToken, // 🔑 Pasar token de autenticación
         );

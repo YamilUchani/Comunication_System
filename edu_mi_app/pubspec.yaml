@@ -47,6 +47,7 @@ dependencies:
   win32: ^5.0.0
   ffi: ^2.0.0
   table_calendar: ^3.0.9
+  window_manager: ^0.3.7
 
 dev_dependencies:
   flutter_test:

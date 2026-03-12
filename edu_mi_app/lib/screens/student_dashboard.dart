@@ -5,6 +5,7 @@ import 'package:table_calendar/table_calendar.dart';
 import '../services/api_service.dart';
 import '../services/window_service.dart';
 import '../video_call/video_call_screen.dart';
+import 'student_waiting_room_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -246,24 +247,16 @@ class _StudentDashboardState extends State<StudentDashboard> {
       final userName = profile['full_name'] ?? 'Estudiante';
 
       if (mounted) {
-        print('🚀 Lanzando sala de espera...');
+        print('🚀 Abriendo sala de espera en ventana secundaria...');
         
         await WindowService().openWaitingRoomWindow(
           channelName: joinData['channelName'],
+          token: joinData['token'],
           userName: userName,
-          userRole: 'student',
-          meetingId: joinData['id'], // 🆔 Pasar ID de la reunión
-          authToken: session?.accessToken, // 🔑 Pasar token de autenticación
+          meetingTitle: meeting['title'] ?? 'Reunión',
+          meetingId: joinData['id'],
+          authToken: session?.accessToken,
         );
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ Ventana de videollamada abierta'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
       }
     } catch (e) {
       print('❌ Error uniéndose a reunión: $e');
