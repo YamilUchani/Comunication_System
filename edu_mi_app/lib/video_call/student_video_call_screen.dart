@@ -51,7 +51,7 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
   bool _showScreenShare = false; // true = pantalla, false = cámara
 
   @override
-  void initState() {
+  void initState() {    print('🔴 [StudentVideoCallScreenState] initState() INICIANDO');    print('🔴 [StudentVideoCallScreen] initState() INICIANDO');
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     controller = VideoCallController(
@@ -61,7 +61,9 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
       meetingId: widget.meetingId,
       authToken: widget.authToken,
     );
+    print('🔴 [StudentVideoCallScreen] Controller creado, llamando _initAgora()');
     _initAgora();
+    print('🔴 [StudentVideoCallScreen] _initAgora() llamado, esperando resultado...');
   }
 
   @override
