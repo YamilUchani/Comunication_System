@@ -309,9 +309,41 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
                 child: Stack(
                   children: [
                     // 📹 CONTENIDO PRINCIPAL (pantalla o cámara)
-                    _showScreenShare && _isAutoShareActive
-                        ? _buildScreenShareView()
-                        : _buildCameraView(),
+                    if (_isAutoShareActive && _showScreenShare)
+                      // Cuando está compartiendo: mostrar indicador + cámara pequeña
+                      Container(
+                        color: Colors.black,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.screen_share,
+                              size: 80,
+                              color: Colors.orange.withOpacity(0.7),
+                            ),
+                            const SizedBox(height: 16),
+                            const Text(
+                              '📺 Compartiendo Pantalla',
+                              style: TextStyle(
+                                color: Colors.orange,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Los demás pueden ver tu pantalla',
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      // Vista normal: cámara o ícono de cámara apagada
+                      _buildCameraView(),
 
                     // 🎛️ CONTROLES VERTICALES EN LA DERECHA
                     Positioned(
