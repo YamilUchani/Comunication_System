@@ -281,8 +281,12 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[100], // 🎨 Fondo blanco sucio/gris claro
       appBar: AppBar(
         title: const Text('Chat'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 1,
         actions: [
           IconButton(
             icon: const Icon(Icons.people),
@@ -334,57 +338,79 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           Container(
             padding: const EdgeInsets.all(8),
-            color: Colors.grey[100],
-            child: Row(
+            color: Colors.white,
+            child: Column(
               children: [
-                ReactionButton(
-                  icon: Icons.thumb_up,
-                  reactionType: 'like',
-                  tooltip: 'Me gusta',
-                  onReaction: _sendReaction,
-                  color: Colors.blue,
-                ),
-                ReactionButton(
-                  icon: Icons.waving_hand,
-                  reactionType: 'hand',
-                  tooltip: 'Levantar mano',
-                  onReaction: _sendReaction,
-                  color: Colors.orange,
-                ),
-                ReactionButton(
-                  icon: Icons.celebration,
-                  reactionType: 'clap',
-                  tooltip: 'Aplaudir',
-                  onReaction: _sendReaction,
-                  color: Colors.yellow[700]!, // ← CORREGIDO: quitar la línea duplicada
-                ),
-                ReactionButton(
-                  icon: Icons.favorite,
-                  reactionType: 'heart',
-                  tooltip: 'Corazón',
-                  onReaction: _sendReaction,
-                  color: Colors.red,
-                ),
-                ReactionButton(
-                  icon: Icons.local_fire_department,
-                  reactionType: 'fire',
-                  tooltip: 'Fuego',
-                  onReaction: _sendReaction,
-                  color: Colors.orangeAccent,
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: const InputDecoration(
-                      hintText: 'Escribe un mensaje...',
-                      border: InputBorder.none,
-                    ),
-                    onSubmitted: (_) => _sendMessage(),
+                // 🎨 Fila de emojis/reacciones
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      ReactionButton(
+                        icon: Icons.thumb_up,
+                        reactionType: 'like',
+                        tooltip: 'Me gusta',
+                        onReaction: _sendReaction,
+                        color: Colors.blue,
+                      ),
+                      ReactionButton(
+                        icon: Icons.waving_hand,
+                        reactionType: 'hand',
+                        tooltip: 'Levantar mano',
+                        onReaction: _sendReaction,
+                        color: Colors.orange,
+                      ),
+                      ReactionButton(
+                        icon: Icons.celebration,
+                        reactionType: 'clap',
+                        tooltip: 'Aplaudir',
+                        onReaction: _sendReaction,
+                        color: Colors.yellow[700]!,
+                      ),
+                      ReactionButton(
+                        icon: Icons.favorite,
+                        reactionType: 'heart',
+                        tooltip: 'Corazón',
+                        onReaction: _sendReaction,
+                        color: Colors.red,
+                      ),
+                      ReactionButton(
+                        icon: Icons.local_fire_department,
+                        reactionType: 'fire',
+                        tooltip: 'Fuego',
+                        onReaction: _sendReaction,
+                        color: Colors.orangeAccent,
+                      ),
+                    ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: _sendMessage,
+                
+                const SizedBox(height: 8),
+                
+                // ✍️ Fila de input de texto
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _messageController,
+                        decoration: InputDecoration(
+                          hintText: 'Escribe un mensaje...',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Colors.grey),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                        onSubmitted: (_) => _sendMessage(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.send),
+                      onPressed: _sendMessage,
+                      color: Colors.blue,
+                    ),
+                  ],
                 ),
               ],
             ),

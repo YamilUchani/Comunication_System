@@ -23,6 +23,7 @@ import 'video_call/student_video_call_screen.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 bool _isAuthInProgress = false;
+bool isSecondaryWindow = false; // 🪟 Indica si es una ventana secundaria (videollamada/sala espera)
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -53,6 +54,7 @@ Future<void> main(List<String> args) async {
 
   // --- LÓGICA DE VENTANAS SECUNDARIAS ---
   if (args.contains('--secondary')) {
+    isSecondaryWindow = true; // 🪟 Marcar como ventana secundaria
     print('🧩 [CHILD PROCESS] Detectado modo secundario. Supabase inicializado ✅');
     
     final mode = _getArgValue(args, 'mode') ?? 'video-call';

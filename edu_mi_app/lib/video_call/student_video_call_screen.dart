@@ -5,11 +5,15 @@
 // - Controles en la parte inferior: chat, compartir, cámara, micrófono, etc
 
 import 'dart:ui';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:agora_rtc_engine/agora_rtc_engine.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'video_call_controller.dart';
 import 'screen_sharing_windows.dart';
+import 'video_widgets.dart';
+import 'chat/chat_controller.dart';
+import 'package:window_manager/window_manager.dart';
+import '../main.dart' as main_module;
+import '../services/meeting_cleanup_service.dart';
 
 class StudentVideoCallScreen extends StatefulWidget {
   final String channelName;
@@ -38,17 +42,78 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
     with WidgetsBindingObserver {
   late final VideoCallController controller;
   ScreenShareController? screenController;
+  ChatController? chatController;
   int? localUid;
+  String? _teacherUid; // UID del maestro (primer remoto)
   
   // Estados de controles
   bool _isAutoShareActive = false;
   bool _isCameraOn = true;
   bool _isMicOn = true;
   bool _showChat = false;
-  bool _showExitConfirm = false;
-  
-  // Pantalla vs Cámara
-  bool _showScreenShare = false; // true = pantalla, false = cámara
+  bool _isFullScreen = false;
+  bool _isBubbleMode = false;
+  Size? _preBubbleSize;
+  Offset? _preBubblePosition;
+
+  void _toggleFullScreen() async {
+    try {
+      if (Platform.isWindows) {
+        if (_isBubbleMode) await _toggleBubbleMode(); // Salir de burbuja primero
+        await windowManager.ensureInitialized();
+        _isFullScreen = !_isFullScreen;
+        await windowManager.setFullScreen(_isFullScreen);
+        setState(() {});
+      } else {
+        setState(() {
+          _isFullScreen = !_isFullScreen;
+        });
+      }
+    } catch (e) {
+      print('❌ Error Full Screen: $e');
+      setState(() { _isFullScreen = !_isFullScreen; });
+    }
+  }
+
+  Future<void> _toggleBubbleMode() async {
+    if (!Platform.isWindows) return;
+    try {
+      await windowManager.ensureInitialized();
+      
+      if (!_isBubbleMode) {
+        // 💾 GUARDAR estado actual antes de encoger
+        _preBubbleSize = await windowManager.getSize();
+        _preBubblePosition = await windowManager.getPosition();
+        
+        _isBubbleMode = true;
+        if (_isFullScreen) {
+          _isFullScreen = false;
+          await windowManager.setFullScreen(false);
+        }
+        await windowManager.setAlwaysOnTop(true);
+        await windowManager.setSize(const Size(220, 160));
+        await windowManager.setPosition(const Offset(40, 40));
+      } else {
+        // 🔙 RESTAURAR estado anterior
+        _isBubbleMode = false;
+        await windowManager.setAlwaysOnTop(false);
+        if (_preBubbleSize != null) {
+          await windowManager.setSize(_preBubbleSize!);
+        } else {
+          await windowManager.setSize(const Size(850, 520));
+        }
+
+        if (_preBubblePosition != null) {
+          await windowManager.setPosition(_preBubblePosition!);
+        } else {
+          await windowManager.center();
+        }
+      }
+      setState(() {});
+    } catch (e) {
+      print('❌ Error Bubble Mode: $e');
+    }
+  }
 
   @override
   void initState() {    print('🔴 [StudentVideoCallScreenState] initState() INICIANDO');    print('🔴 [StudentVideoCallScreen] initState() INICIANDO');
@@ -61,6 +126,8 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
       meetingId: widget.meetingId,
       authToken: widget.authToken,
     );
+    // 📝 Registrar este controlador para limpieza en logout
+    MeetingCleanupService.registerActiveController(controller);
     print('🔴 [StudentVideoCallScreen] Controller creado, llamando _initAgora()');
     _initAgora();
     print('🔴 [StudentVideoCallScreen] _initAgora() llamado, esperando resultado...');
@@ -69,7 +136,11 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
   @override
   Future<AppExitResponse> didRequestAppExit() async {
     print('🚪 Estudiante saliendo de la videollamada...');
-    await controller.leaveAndDispose();
+    try {
+      await MeetingCleanupService.cleanupActiveMeeting(closeWindow: true);
+    } catch (e) {
+      print('⚠️ Error al salir: $e');
+    }
     return AppExitResponse.exit;
   }
 
@@ -85,8 +156,22 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
       if (mounted) {
         setState(() {
           screenController = ScreenShareController(engine: controller.engine);
+
+          // 💬 Inicializar chat con filtro: solo mensajes del maestro
+          chatController = ChatController(
+            engine: controller.engine,
+            localUserId: localUid.toString(),
+            localUserName: widget.userName,
+            allowedSenderIds: {}, // se puebla cuando el maestro se una
+          );
         });
-        print('[INIT] ✅ ScreenShareController creado');
+        print('[INIT] ✅ ScreenShareController y ChatController creados');
+
+        // Escuchar cambios en remotos para detectar al maestro
+        controller.remoteUids.addListener(_onRemoteUidsChanged);
+        // Procesar estado inicial por si ya hay remotos
+        _onRemoteUidsChanged();
+
         print('[INIT] ✅ Listo para compartir pantalla manualmente');
       }
     } catch (e) {
@@ -95,6 +180,19 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error al inicializar: $e')),
         );
+      }
+    }
+  }
+
+  /// Actualiza el UID permitido del maestro cuando cambian los remotos
+  void _onRemoteUidsChanged() {
+    final uids = controller.remoteUids.value;
+    if (uids.isNotEmpty) {
+      final teacherUidStr = uids.first.toString();
+      if (_teacherUid != teacherUidStr) {
+        _teacherUid = teacherUidStr;
+        chatController?.allowedSenderIds = {teacherUidStr};
+        print('[CHAT] 🏫 Maestro detectado: UID=$teacherUidStr');
       }
     }
   }
@@ -153,7 +251,6 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
         if (mounted) {
           setState(() {
             _isAutoShareActive = true;
-            _showScreenShare = true;
           });
         }
 
@@ -207,7 +304,6 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
       if (mounted) {
         setState(() {
           _isAutoShareActive = false;
-          _showScreenShare = false;
         });
       }
 
@@ -253,183 +349,195 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
     if (_isAutoShareActive) {
       await _stopScreenShare();
     }
-    await controller.leaveAndDispose();
+    
+    // Agregar un pequeño delay para permitir que notifyLeaveChannel se complete
+    // antes de descartar los recursos de la pantalla
+    try {
+      await controller.leaveAndDispose();
+      // Esperar un poco más para asegurar que Agora haya procesado la salida
+      await Future.delayed(const Duration(milliseconds: 500));
+    } catch (e) {
+      print('Error al salir de la videollamada: $e');
+    }
+    
     if (mounted) {
-      Navigator.pop(context);
+      // Si es una ventana secundaria, cerrar la aplicación completamente
+      if (main_module.isSecondaryWindow) {
+        print('🪟 Cerrando ventana secundaria de videollamada...');
+        await Future.delayed(const Duration(milliseconds: 200));
+        exit(0);
+      } else {
+        // Si es la pantalla principal, solo pop
+        Navigator.pop(context);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) chatController?.setContext(context);
+    });
+
     return WillPopScope(
       onWillPop: () async {
-        setState(() {
-          _showExitConfirm = true;
-        });
+        if (_isBubbleMode) {
+          await _toggleBubbleMode();
+          return false;
+        }
+        if (_isFullScreen) {
+          _toggleFullScreen();
+          return false;
+        }
+        _showExitDialog();
         return false;
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: ValueListenableBuilder<bool>(
-          valueListenable: controller.localUserJoined,
-          builder: (context, joined, _) {
-            if (!joined) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const CircularProgressIndicator(color: Colors.teal),
-                    const SizedBox(height: 20),
-                    Text(
-                      'Conectando: ${widget.channelName}',
-                      style: const TextStyle(color: Colors.white70),
-                    ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'Preparando pantalla compartida...',
-                      style: TextStyle(color: Colors.white38, fontSize: 12),
-                    ),
-                  ],
+        body: _isBubbleMode
+          ? _buildBubbleUI()
+          : _isFullScreen 
+            ? Stack(
+              children: [
+                Positioned.fill(child: _buildTeacherArea()),
+                Positioned(
+                  top: 20,
+                  right: 20,
+                  child: FloatingActionButton(
+                    heroTag: 'exit_fullscreen_top',
+                    backgroundColor: Colors.orange.withOpacity(0.9),
+                    onPressed: _toggleFullScreen,
+                    child: const Icon(Icons.fullscreen_exit, color: Colors.white, size: 28),
+                  ),
                 ),
-              );
-            }
-
-            return Center(
-              child: Container(
-                // 📏 Ventana pequeña adaptable (250x200 base, se adapta al ancho)
-                constraints: BoxConstraints(
-                  maxWidth: 400,
-                  maxHeight: 300,
-                ),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.teal, width: 2),
-                  borderRadius: BorderRadius.circular(12),
-                  color: Colors.black,
-                ),
-                child: Stack(
-                  children: [
-                    // 📹 CONTENIDO PRINCIPAL (pantalla o cámara)
-                    if (_isAutoShareActive && _showScreenShare)
-                      // Cuando está compartiendo: mostrar indicador visual
-                      Container(
-                        color: Colors.black,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            TweenAnimationBuilder<double>(
-                              tween: Tween(begin: 0.8, end: 1.2),
-                              duration: const Duration(milliseconds: 1000),
-                              onEnd: () {},
-                              builder: (context, value, child) {
-                                return Transform.scale(
-                                  scale: value,
-                                  child: Icon(
-                                    Icons.videocam,
-                                    size: 80,
-                                    color: Colors.orange.withOpacity(0.9),
-                                  ),
-                                );
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            const Text(
-                              '📺 Pantalla Activa',
-                              style: TextStyle(
-                                color: Colors.orange,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'Los demás ven tu pantalla',
-                              style: TextStyle(
-                                color: Colors.white54,
-                                fontSize: 12,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: const BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.orange,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                const Text(
-                                  'En directo',
-                                  style: TextStyle(
-                                    color: Colors.orange,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+              ],
+            )
+          : Stack(
+              children: [
+                // 🎥 Contenido principal centrado
+            ValueListenableBuilder<bool>(
+              valueListenable: controller.localUserJoined,
+              builder: (context, joined, _) {
+                if (!joined) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(color: Colors.teal),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Conectando: ${widget.channelName}',
+                          style: const TextStyle(color: Colors.white70),
                         ),
-                      )
-                    else
-                      // Vista normal: cámara
-                      _buildCameraView(),
-
-                    // 🎛️ CONTROLES VERTICALES EN LA DERECHA
-                    Positioned(
-                      right: 0,
-                      top: 0,
-                      bottom: 0,
-                      child: _buildVerticalControlsBar(),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Preparando pantalla compartida...',
+                          style: TextStyle(color: Colors.white38, fontSize: 12),
+                        ),
+                      ],
                     ),
+                  );
+                }
 
-                    // ========== INDICADOR DE COMPARTICIÓN ==========
-                    if (screenController != null && _isAutoShareActive)
-                      Positioned(
-                        top: 4,
-                        left: 4,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.9),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
+                return Center(
+                  child: Container(
+                    constraints: const BoxConstraints(
+                      minWidth: 320,
+                      maxWidth: 850,
+                      maxHeight: 500,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.orange.withOpacity(0.5), width: 2),
+                      borderRadius: BorderRadius.circular(20),
+                      color: const Color(0xFFF8F9FA), // Gris muy claro
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.orange.withOpacity(0.1),
+                          blurRadius: 20,
+                          spreadRadius: 5,
+                        ),
+                      ],
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Row(
+                      children: [
+                        // 🎥 Contenido principal (Video Split)
+                        Expanded(
+                          child: Stack(
                             children: [
-                              Icon(
-                                Icons.check_circle,
-                                color: Colors.white,
-                                size: 12,
+                              Column(
+                                children: [
+                                  Expanded(child: _buildStudentVideoLayout()),
+                                ],
                               ),
-                              SizedBox(width: 4),
-                              Text(
-                                'Compartida',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
+
+                              // === INDICADOR DE COMPARTICIÓN ===
+                              if (screenController != null && _isAutoShareActive)
+                                Positioned(
+                                  top: 10,
+                                  left: 10,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.orange,
+                                      borderRadius: BorderRadius.circular(20),
+                                      boxShadow: [
+                                        BoxShadow(color: Colors.black26, blurRadius: 4)
+                                      ],
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.screen_share, color: Colors.white, size: 14),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'Transmitiendo',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                              ),
                             ],
                           ),
                         ),
-                      ),
-                  ],
-                ),
+
+                        // 🎛️ CONTROLES VERTICALES EN LA DERECHA
+                        if (!_isFullScreen) _buildVerticalControlsBar(),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+
+            // 💬 Panel de chat deslizable (desde la derecha)
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              right: _showChat ? 0 : -320,
+              top: 0,
+              bottom: 0,
+              width: 320,
+              child: Material(
+                elevation: 8,
+                color: const Color(0xFF1A1A2E),
+                child: _buildStudentChatPanel(),
               ),
-            );
-          },
+            ),
+          ],
         ),
       ),
     );
   }
+
 
   // ========== DIÁLOGO DE CONFIRMACIÓN ==========
   void _showExitDialog() {
@@ -451,28 +559,36 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 25),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey[700],
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey[800],
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text('Cancelar', style: TextStyle(fontSize: 13)),
                       ),
-                      child: const Text('Cancelar'),
                     ),
-                    ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _exitMeeting();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _exitMeeting();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red[600],
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text('Salir', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                       ),
-                      child: const Text('Salir'),
                     ),
                   ],
                 ),
@@ -518,48 +634,333 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
     );
   }
 
-  /// 📹 Construir vista de cámara del estudiante
-  Widget _buildCameraView() {
+  Widget _buildStudentVideoLayout() {
+    return Column(
+      children: [
+        // 🎓 MAESTRO - Parte superior (40%)
+        Expanded(
+          flex: 2, // 40% del espacio
+          child: _buildTeacherArea(),
+        ),
+        
+        // Divisor
+        Container(
+          height: 2,
+          color: Colors.grey[200]!.withOpacity(0.5),
+        ),
+        
+        // 👨‍🎓 ESTUDIANTE - Parte inferior (40%)
+        Expanded(
+          flex: 2, // 40% del espacio
+          child: Container(
+            color: Colors.white,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: controller.localUserJoined,
+              builder: (context, joined, _) {
+                if (!joined) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: Colors.orange),
+                  );
+                }
+                
+                // Mostrar indicador de pantalla compartida o el ícono de cámara
+                if (_isAutoShareActive) {
+                  // 📺 Indicador compacto de pantalla compartida
+                  return Container(
+                    color: Colors.white,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.orange,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Compartiendo pantalla',
+                              style: TextStyle(
+                                color: Colors.orange,
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Los demás ven tu pantalla',
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                // 🎥 Vista normal: ícono de cámara + etiqueta
+                return Stack(
+                  children: [
+                    Center(
+                      child: Icon(
+                        _isCameraOn ? Icons.videocam : Icons.videocam_off,
+                        size: 60,
+                        color: _isCameraOn ? Colors.orange : Colors.red[300],
+                      ),
+                    ),
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.orange,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'Tú',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+        
+        // 🚦 Botones de estatus (Semáforo) - Estilo Dashboard
+        _buildStatusButtonsRow(),
+      ],
+    );
+  }
+
+  /// 🎓 Área del maestro (Video o Pantalla compartida)
+  Widget _buildTeacherArea() {
+    return GestureDetector(
+      onDoubleTap: _toggleFullScreen,
+      child: Container(
+        color: Colors.black,
+        child: ValueListenableBuilder<Set<int>>(
+          valueListenable: controller.remoteUids,
+          builder: (context, remoteUids, _) {
+            return ValueListenableBuilder<Set<int>>(
+              valueListenable: controller.remoteScreenShareUids,
+              builder: (context, screenShareUids, _) {
+                // Si hay pantalla compartida, mostrarla
+                if (screenShareUids.isNotEmpty) {
+                  return Container(
+                    color: Colors.black,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0.8, end: 1.2),
+                          duration: const Duration(milliseconds: 1000),
+                          onEnd: () {},
+                          builder: (context, value, child) {
+                            return Transform.scale(
+                              scale: value,
+                              child: Icon(
+                                Icons.videocam,
+                                size: 80,
+                                color: Colors.orange.withOpacity(0.9),
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          '📺 Pantalla Compartida',
+                          style: TextStyle(
+                            color: Colors.orange,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'El maestro está compartiendo su pantalla',
+                          style: TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.orange,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'En directo',
+                              style: TextStyle(
+                                color: Colors.orange,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                
+                // Si no hay pantalla compartida, mostrar el maestro
+                if (remoteUids.isEmpty) {
+                  return const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.person,
+                          size: 60,
+                          color: Colors.grey,
+                        ),
+                        SizedBox(height: 10),
+                        Text(
+                          'Esperando al maestro...',
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                
+                // Mostrar el video del primer maestro (usualmente el único remoto)
+                final teacherUid = remoteUids.first;
+                return Stack(
+                  children: [
+                    // 🎥 Video del maestro con detección de frames congelados
+                    RemoteVideoWithFrozenDetection(
+                      uid: teacherUid,
+                      channelName: controller.channelName,
+                      rtcEngine: controller.engine,
+                    ),
+                    // Etiqueta del maestro
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.orange,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'Maestro',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Fila de botones de estatus (rojo, amarillo, verde)
+  Widget _buildStatusButtonsRow() {
     return Container(
-      color: Colors.black87,
-      child: Center(
-        child: _isCameraOn
-            ? Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.videocam,
-                    size: 80,
-                    color: Colors.white24,
+      height: 60,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Colors.grey[200]!)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _buildStatusButton(Colors.red[400]!, 'No entiendo nada', '🔴'),
+          const SizedBox(width: 10),
+          _buildStatusButton(Colors.orange[400]!, 'No entiendo algo', '🟡'),
+          const SizedBox(width: 10),
+          _buildStatusButton(Colors.green[400]!, 'Entiendo todo', '🟢'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusButton(Color color, String text, String icon) {
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          chatController?.sendTextMessage(
+            text, 
+            recipientId: _teacherUid, 
+            recipientName: 'Maestro'
+          );
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Estatus enviado: $text'),
+              duration: const Duration(seconds: 1),
+              backgroundColor: color,
+            ),
+          );
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(100), // Stadium
+            border: Border.all(color: color.withOpacity(0.4), width: 1.5),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(icon, style: const TextStyle(fontSize: 16)),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  text.split(' ').last,
+                  style: TextStyle(
+                    color: color.withAlpha(200),
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
                   ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Tu Cámara',
-                    style: TextStyle(
-                      color: Colors.white54,
-                      fontSize: 18,
-                    ),
-                  ),
-                ],
-              )
-            : Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.videocam_off,
-                    size: 80,
-                    color: Colors.red,
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Cámara Apagada',
-                    style: TextStyle(
-                      color: Colors.red,
-                      fontSize: 18,
-                    ),
-                  ),
-                ],
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -585,74 +986,108 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
     );
   }
 
-  /// 🎛️ Barra de controles VERTICAL (sidebar derecha - compacta)
+  /// 🎛️ Barra de controles VERTICAL (sidebar derecha)
   Widget _buildVerticalControlsBar() {
     return Container(
-      width: 50,
-      color: Colors.black87,
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // 📹 Toggle Cámara
-          _buildVerticalControlButton(
-            icon: _isCameraOn ? Icons.videocam : Icons.videocam_off,
-            label: 'Cam',
-            color: _isCameraOn ? Colors.white : Colors.red,
-            onPressed: _toggleCamera,
-          ),
-          const SizedBox(height: 8),
-
-          // 🎤 Toggle Micrófono
-          _buildVerticalControlButton(
-            icon: _isMicOn ? Icons.mic : Icons.mic_off,
-            label: 'Mic',
-            color: _isMicOn ? Colors.white : Colors.red,
-            onPressed: _toggleMic,
-          ),
-          const SizedBox(height: 8),
-
-          // 📺 Compartir Pantalla
-          _buildVerticalControlButton(
-            icon: _isAutoShareActive
-                ? Icons.stop_screen_share
-                : Icons.screen_share,
-            label: 'Share',
-            color: _isAutoShareActive ? Colors.orange : Colors.white,
-            onPressed: _startScreenShare,
-          ),
-          const SizedBox(height: 8),
-
-          // 💬 Chat
-          _buildVerticalControlButton(
-            icon: Icons.chat,
-            label: 'Chat',
-            color: Colors.white,
-            onPressed: () {
-              setState(() {
-                _showChat = !_showChat;
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('💬 Chat (próximamente)'),
-                  duration: Duration(seconds: 1),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 8),
-
-          // ❌ Salir
-          _buildVerticalControlButton(
-            icon: Icons.call_end,
-            label: 'Exit',
-            color: Colors.red,
-            onPressed: () {
-              _showExitDialog();
-            },
-          ),
-        ],
+      width: 85,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(left: BorderSide(color: Colors.grey[200]!)),
       ),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 📹 Toggle Cámara
+              _buildVerticalControlButton(
+                icon: _isCameraOn ? Icons.videocam : Icons.videocam_off,
+                label: 'Cámara',
+                color: _isCameraOn ? Colors.orange : Colors.grey[600]!,
+                onPressed: _toggleCamera,
+              ),
+              const SizedBox(height: 12),
+
+              // 🎤 Toggle Micrófono
+              _buildVerticalControlButton(
+                icon: _isMicOn ? Icons.mic : Icons.mic_off,
+                label: 'Micro',
+                color: _isMicOn ? Colors.orange : Colors.grey[600]!,
+                onPressed: _toggleMic,
+              ),
+              const SizedBox(height: 12),
+
+              // 🫧 Modo Burbuja (PiP)
+              _buildVerticalControlButton(
+                icon: _isBubbleMode ? Icons.picture_in_picture_alt : Icons.picture_in_picture,
+                label: 'Burbuja',
+                color: _isBubbleMode ? Colors.orange : Colors.grey[600]!,
+                onPressed: _toggleBubbleMode,
+              ),
+              const SizedBox(height: 12),
+
+              // 📺 Compartir Pantalla
+              _buildVerticalControlButton(
+                icon: _isAutoShareActive
+                    ? Icons.stop_screen_share
+                    : Icons.screen_share,
+                label: 'Espejo',
+                color: _isAutoShareActive ? Colors.deepPurple : Colors.grey[600]!,
+                onPressed: _startScreenShare,
+              ),
+              const SizedBox(height: 12),
+
+              // 💬 Chat
+              ValueListenableBuilder<bool>(
+                valueListenable: chatController?.hasUnreadMessages ?? ValueNotifier(false),
+                builder: (context, hasUnread, _) {
+                  return _buildVerticalControlButton(
+                    icon: hasUnread ? Icons.chat : Icons.chat_bubble_outline,
+                    label: 'Chat',
+                    color: _showChat ? Colors.deepPurple : (hasUnread ? Colors.orange : Colors.grey[600]!),
+                    onPressed: () {
+                      setState(() {
+                        _showChat = !_showChat;
+                      });
+                      if (_showChat) chatController?.markMessagesAsRead();
+                    },
+                  );
+                },
+              ),
+              
+              const SizedBox(height: 24),
+
+              // ❌ Salir
+              _buildVerticalControlButton(
+                icon: Icons.exit_to_app,
+                label: 'Salir',
+                color: Colors.red[400]!,
+                onPressed: () {
+                  _showExitDialog();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // 💬 PANEL DE CHAT DEL ESTUDIANTE
+  // ============================================================
+  Widget _buildStudentChatPanel() {
+    if (chatController == null) {
+      return const Center(
+        child: Text('Chat no disponible', style: TextStyle(color: Colors.white54)),
+      );
+    }
+
+    return _StudentChatPanel(
+      chatController: chatController!,
+      teacherUid: _teacherUid,
+      onClose: () => setState(() { _showChat = false; }),
     );
   }
 
@@ -663,9 +1098,12 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
     required Color color,
     required VoidCallback onPressed,
   }) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onPressed,
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        width: double.infinity,
+        color: Colors.transparent, // Para que el GestureDetector capture todo el ancho
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -679,15 +1117,15 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
               child: Icon(
                 icon,
                 color: color,
-                size: 16,
+                size: 24,
               ),
             ),
-            const SizedBox(height: 3),
+            const SizedBox(height: 6),
             Text(
               label,
               style: TextStyle(
-                color: color,
-                fontSize: 8,
+                color: color == Colors.grey[600] ? Colors.grey[500] : color,
+                fontSize: 11,
                 fontWeight: FontWeight.bold,
               ),
               textAlign: TextAlign.center,
@@ -702,9 +1140,392 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
 
   @override
   void dispose() {
+    if (Platform.isWindows) {
+      if (_isFullScreen) windowManager.setFullScreen(false);
+      if (_isBubbleMode) {
+        windowManager.setAlwaysOnTop(false);
+        windowManager.setSize(const Size(850, 520));
+      }
+    }
     WidgetsBinding.instance.removeObserver(this);
+    controller.remoteUids.removeListener(_onRemoteUidsChanged);
+    // Desregistrar para que no intente limpiar si ya se limpió
+    MeetingCleanupService.unregisterActiveController();
     controller.dispose();
     screenController?.dispose();
+    chatController?.dispose();
     super.dispose();
   }
+
+  /// 🫧 UI de Burbuja (Picture in Picture)
+  Widget _buildBubbleUI() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orange, width: 2),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          Positioned.fill(child: _buildTeacherArea()),
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _toggleBubbleMode,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.open_in_full, color: Colors.white, size: 16),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
+
+// ============================================================
+// 💬 Widget del panel de chat del estudiante (privado maestro-estudiante)
+// ============================================================
+class _StudentChatPanel extends StatefulWidget {
+  final ChatController chatController;
+  final String? teacherUid;
+  final VoidCallback onClose;
+
+  const _StudentChatPanel({
+    required this.chatController,
+    required this.teacherUid,
+    required this.onClose,
+  });
+
+  @override
+  State<_StudentChatPanel> createState() => _StudentChatPanelState();
+}
+
+class _StudentChatPanelState extends State<_StudentChatPanel> {
+  final TextEditingController _textController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.chatController.messages.addListener(_onNewMessage);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  void _onNewMessage() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  void _sendMessage() {
+    final text = _textController.text.trim();
+    if (text.isEmpty) return;
+
+    // Siempre enviar al maestro (privado)
+    widget.chatController.sendTextMessage(
+      text,
+      recipientId: widget.teacherUid,
+      recipientName: 'Maestro',
+    ).then((_) {
+      _textController.clear();
+      _scrollToBottom();
+    }).catchError((e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
+    });
+  }
+
+  Widget _buildBubble(message) {
+    final isMe = message.senderId == widget.chatController.localUserId;
+    final time =
+        '${message.timestamp.hour}:${message.timestamp.minute.toString().padLeft(2, '0')}';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+      child: Row(
+        mainAxisAlignment:
+            isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!isMe) ...[
+            CircleAvatar(
+              radius: 14,
+              backgroundColor: Colors.orange,
+              child: const Text(
+                'M',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
+          Flexible(
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: isMe
+                    ? const Color(0xFF00BCD4)   // teal para el estudiante
+                    : const Color(0xFF2D2D4E), // oscuro para el maestro
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(16),
+                  topRight: const Radius.circular(16),
+                  bottomLeft: Radius.circular(isMe ? 16 : 4),
+                  bottomRight: Radius.circular(isMe ? 4 : 16),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: isMe
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                children: [
+                  if (!isMe)
+                    const Text(
+                      'Maestro',
+                      style: TextStyle(
+                        color: Colors.orange,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  Text(
+                    message.content,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    time,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.6),
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (isMe) const SizedBox(width: 6),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Header
+        Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: const BoxDecoration(
+            color: Color(0xFF0F0F23),
+            border: Border(
+              bottom: BorderSide(color: Color(0xFF2D2D4E), width: 1),
+            ),
+          ),
+          child: Row(
+            children: [
+              const CircleAvatar(
+                radius: 16,
+                backgroundColor: Colors.orange,
+                child: Text(
+                  'M',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Maestro',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                    Text(
+                      'Chat privado',
+                      style: TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.white54, size: 20),
+                onPressed: widget.onClose,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              ),
+            ],
+          ),
+        ),
+
+        // Lista de mensajes
+        Expanded(
+          child: ValueListenableBuilder<List<dynamic>>(
+            valueListenable: widget.chatController.messages,
+            builder: (context, messages, _) {
+              if (messages.isEmpty) {
+                return const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.chat_bubble_outline,
+                          color: Colors.white24, size: 40),
+                      SizedBox(height: 12),
+                      Text(
+                        'Sin mensajes aún.\nEscribe algo al maestro.',
+                        style: TextStyle(
+                          color: Colors.white38,
+                          fontSize: 13,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                );
+              }
+              return ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: messages.length,
+                itemBuilder: (_, i) => _buildBubble(messages[i]),
+              );
+            },
+          ),
+        ),
+        
+        // Emojis de reacción (Igual que el maestro)
+        _buildReactionRow(),
+
+        // Input
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: const BoxDecoration(
+            color: Color(0xFF0F0F23),
+            border: Border(
+              top: BorderSide(color: Color(0xFF2D2D4E), width: 1),
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _textController,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  decoration: InputDecoration(
+                    hintText: 'Escribe al maestro...',
+                    hintStyle: const TextStyle(
+                      color: Colors.white38,
+                      fontSize: 13,
+                    ),
+                    filled: true,
+                    fillColor: const Color(0xFF2D2D4E),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                  ),
+                  onSubmitted: (_) => _sendMessage(),
+                  textInputAction: TextInputAction.send,
+                ),
+              ),
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: _sendMessage,
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF00BCD4),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.send, color: Colors.white, size: 18),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    widget.chatController.messages.removeListener(_onNewMessage);
+    _textController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// Fila de reacciones rápidas
+  Widget _buildReactionRow() {
+    return Container(
+      height: 40,
+      decoration: const BoxDecoration(
+        color: Color(0xFF0F0F23),
+        border: Border(
+          top: BorderSide(color: Color(0xFF2D2D4E), width: 1),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _buildEmojiButton('👍', 'like'),
+          _buildEmojiButton('👋', 'hand'),
+          _buildEmojiButton('👏', 'clap'),
+          _buildEmojiButton('❤️', 'heart'),
+          _buildEmojiButton('🔥', 'fire'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmojiButton(String emoji, String type) {
+    return InkWell(
+      onTap: () => widget.chatController.sendReaction(type),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: Text(emoji, style: const TextStyle(fontSize: 20)),
+      ),
+    );
+  }
+}
+

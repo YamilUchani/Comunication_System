@@ -18,6 +18,10 @@ class ChatController {
   bool _isDataStreamInitialized = false;
   BuildContext? _context;
 
+  /// Si se establece, solo se muestran mensajes cuyo senderId esté en este set.
+  /// Útil para el chat estudiante-maestro: ignorar mensajes de otros estudiantes.
+  Set<String>? allowedSenderIds;
+
   void setContext(BuildContext context) {
     _context = context;
   }
@@ -28,6 +32,7 @@ class ChatController {
     required RtcEngine engine,
     required this.localUserId,
     required this.localUserName,
+    this.allowedSenderIds,
   }) : _engine = engine {
     _initializeChat();
   }
@@ -68,6 +73,11 @@ class ChatController {
       final messageStr = String.fromCharCodes(data);
       final messageJson = jsonDecode(messageStr);
       final message = ChatMessage.fromJson(messageJson);
+
+      // 🔒 Filtro de remitentes: ignorar mensajes de usuarios no permitidos
+      if (allowedSenderIds != null && !allowedSenderIds!.contains(message.senderId)) {
+        return; // Ignorar mensajes de otros estudiantes
+      }
 
       if (message.recipientId == null || message.recipientId == localUserId) {
         messages.value = [...messages.value, message];

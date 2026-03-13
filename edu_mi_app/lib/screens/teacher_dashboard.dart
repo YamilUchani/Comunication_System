@@ -4,6 +4,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../services/window_service.dart';
+import '../services/meeting_cleanup_service.dart';
 
 class TeacherDashboard extends StatefulWidget {
   const TeacherDashboard({super.key});
@@ -15,6 +16,7 @@ class TeacherDashboard extends StatefulWidget {
 class _TeacherDashboardState extends State<TeacherDashboard> {
   List<dynamic>? _myStudents;
   List<dynamic>? _activeMeetings;
+  List<dynamic>? _schedules;
   bool _isLoading = false;
 
   // Calendar State
@@ -31,11 +33,21 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
+    
+    // Cargar lo básico
     await Future.wait([
-      _loadMyStudents(),
-      _loadActiveMeetings(),
-      _loadAttendanceHistory(),
+      _loadMyStudents().catchError((e) => null),
+      _loadActiveMeetings().catchError((e) => null),
+      _loadAttendanceHistory().catchError((e) => null),
     ]);
+
+    // Intentar horarios por separado
+    try {
+      await _loadSchedules();
+    } catch (e) {
+      print('Schedules route not available yet');
+    }
+
     if (mounted) setState(() => _isLoading = false);
   }
 
@@ -128,6 +140,10 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
+              // 🧹 Limpieza al cerrar sesión
+              await MeetingCleanupService.cleanupActiveMeeting();
+              WindowService().terminateSecondaryWindows();
+
               await Supabase.instance.client.auth.signOut();
               if (context.mounted) {
                 Navigator.pushReplacementNamed(context, '/login');
@@ -166,6 +182,16 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                           () => _showAttendanceCalendar(context),
                         ),
                       ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildActionCard(
+                          context,
+                          'Horarios',
+                          Icons.schedule,
+                          Colors.blue,
+                          () => _showSchedulesManager(context),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 20),
@@ -200,9 +226,93 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                     ..._myStudents!.map(
                       (student) => _buildStudentCard(student),
                     ),
+                  const SizedBox(height: 20),
+                  _buildSectionTitle('Horario de la Semana'),
+                  const SizedBox(height: 10),
+                  _buildSchedulesList(),
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _buildSchedulesList() {
+    if (_schedules == null || _schedules!.isEmpty) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('No hay clases programadas para esta semana.'),
+        ),
+      );
+    }
+
+    final days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    
+    // Agrupar por día
+    final grouped = <int, List<dynamic>>{};
+    for (var s in _schedules!) {
+      final day = s['day_of_week'] as int;
+      if (grouped[day] == null) grouped[day] = [];
+      grouped[day]!.add(s);
+    }
+
+    // Ordenar días
+    final sortedDays = grouped.keys.toList()..sort();
+
+    return Column(
+      children: sortedDays.map((dayNum) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                days[dayNum],
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.teal),
+              ),
+            ),
+            ...grouped[dayNum]!.map((schedule) => Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                leading: const Icon(Icons.schedule, color: Colors.teal),
+                title: Text(schedule['subject']),
+                subtitle: Text('${schedule['start_time']} - ${schedule['end_time']}'),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  onPressed: () => _confirmDeleteSchedule(schedule),
+                ),
+              ),
+            )),
+          ],
+        );
+      }).toList(),
+    );
+  }
+
+  void _confirmDeleteSchedule(dynamic schedule) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminar Horario'),
+        content: Text('¿Estás seguro de que quieres eliminar la clase programada de "${schedule['subject']}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                await ApiService.deleteSchedule(schedule['id']);
+                Navigator.pop(context);
+                _loadSchedules();
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Horario eliminado')));
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -253,8 +363,11 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
   }
 
   Widget _buildMeetingCard(dynamic meeting) {
+    final isCreator =
+        meeting['creatorId'] == Supabase.instance.client.auth.currentUser?.id;
+
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.all(8),
       color: Colors.teal.shade50,
       child: ListTile(
         leading: const CircleAvatar(
@@ -262,12 +375,64 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
           child: Icon(Icons.video_camera_front, color: Colors.white),
         ),
         title: Text(meeting['title'] ?? 'Reunión'),
-        subtitle: Text(meeting['description'] ?? ''),
-        trailing: ElevatedButton(
-          onPressed: () => _joinMeeting(meeting),
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
-          child: const Text('Unirse'),
+        subtitle: Text(
+          'Iniciada por: ${meeting['creatorName']}\n${meeting['description'] ?? ""}',
         ),
+        isThreeLine: true,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ElevatedButton(
+              onPressed: () => _joinMeeting(meeting),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+              child: const Text('Unirse'),
+            ),
+            if (isCreator) ...[
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.stop_circle, color: Colors.red),
+                tooltip: 'Finalizar Clase',
+                onPressed: () => _showEndMeetingDialog(meeting),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showEndMeetingDialog(dynamic meeting) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Finalizar Clase?'),
+        content: Text(
+          'Esto cerrará la sesión de "${meeting['title']}" para todos los participantes.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                await ApiService.endMeeting(meeting['id']);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Clase finalizada')),
+                );
+                _loadActiveMeetings();
+              } catch (e) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('Error: $e')));
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Finalizar'),
+          ),
+        ],
       ),
     );
   }
@@ -771,7 +936,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
 
       if (mounted) {
         print('🚀 Lanzando ventana de videollamada independiente...');
-        
+
         await WindowService().openVideoCallWindow(
           channelName: joinData['channelName'],
           token: joinData['token'],
@@ -798,5 +963,188 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
         ).showSnackBar(SnackBar(content: Text('Error al unirse: $e')));
       }
     }
+  }
+
+  Future<void> _loadSchedules() async {
+    try {
+      final schedules = await ApiService.getSchedules();
+      if (mounted) {
+        setState(() {
+          _schedules = schedules;
+        });
+      }
+    } catch (e) {
+      print('Error loading schedules: $e');
+    }
+  }
+
+  void _showSchedulesManager(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Gestión de Horarios'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_schedules == null || _schedules!.isEmpty)
+                  const Text('No hay horarios programados.')
+                else
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: _schedules!.length,
+                      itemBuilder: (context, index) {
+                        final schedule = _schedules![index];
+                        final days = [
+                          'Dom',
+                          'Lun',
+                          'Mar',
+                          'Mié',
+                          'Jue',
+                          'Vie',
+                          'Sáb',
+                        ];
+                        final dayName = days[schedule['day_of_week']];
+                        return ListTile(
+                          title: Text(schedule['subject']),
+                          subtitle: Text(
+                            '$dayName | ${schedule['start_time']} - ${schedule['end_time']}',
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () async {
+                              await ApiService.deleteSchedule(schedule['id']);
+                              await _loadSchedules();
+                              setDialogState(() {});
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                const Divider(),
+                ElevatedButton.icon(
+                  onPressed: () =>
+                      _showAddScheduleDialog(context, setDialogState),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Nuevo Horario'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAddScheduleDialog(
+    BuildContext context,
+    StateSetter parentSetState,
+  ) {
+    final subjectController = TextEditingController();
+    int selectedDay = 1;
+    TimeOfDay startTime = const TimeOfDay(hour: 8, minute: 0);
+    TimeOfDay endTime = const TimeOfDay(hour: 9, minute: 0);
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Programar Nueva Clase'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: subjectController,
+                  decoration: const InputDecoration(
+                    labelText: 'Materia/Título',
+                  ),
+                ),
+                DropdownButtonFormField<int>(
+                  value: selectedDay,
+                  items: const [
+                    DropdownMenuItem(value: 1, child: Text('Lunes')),
+                    DropdownMenuItem(value: 2, child: Text('Martes')),
+                    DropdownMenuItem(value: 3, child: Text('Miércoles')),
+                    DropdownMenuItem(value: 4, child: Text('Jueves')),
+                    DropdownMenuItem(value: 5, child: Text('Viernes')),
+                    DropdownMenuItem(value: 6, child: Text('Sábado')),
+                    DropdownMenuItem(value: 0, child: Text('Domingo')),
+                  ],
+                  onChanged: (val) => setState(() => selectedDay = val!),
+                  decoration: const InputDecoration(labelText: 'Día'),
+                ),
+                ListTile(
+                  title: const Text('Hora Inicio'),
+                  trailing: Text(startTime.format(context)),
+                  onTap: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: startTime,
+                    );
+                    if (picked != null) setState(() => startTime = picked);
+                  },
+                ),
+                ListTile(
+                  title: const Text('Hora Fin'),
+                  trailing: Text(endTime.format(context)),
+                  onTap: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: endTime,
+                    );
+                    if (picked != null) setState(() => endTime = picked);
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  final startStr =
+                      '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}:00';
+                  final endStr =
+                      '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}:00';
+
+                  await ApiService.createSchedule(
+                    subject: subjectController.text,
+                    dayOfWeek: selectedDay,
+                    startTime: startStr,
+                    endTime: endStr,
+                  );
+
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    await _loadSchedules();
+                    parentSetState(() {});
+                  }
+                } catch (e) {
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text('Error: $e')));
+                }
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../services/api_service.dart';
 import '../services/window_service.dart';
+import '../services/meeting_cleanup_service.dart';
 import '../video_call/video_call_screen.dart';
 import 'student_waiting_room_screen.dart';
 
@@ -18,6 +19,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
   List<dynamic>? _achievements;
   List<dynamic>? _activeMeetings;
   List<dynamic>? _attendanceHistory;
+  List<dynamic>? _schedules;
   bool _isLoading = true;
 
   // Calendar state
@@ -36,11 +38,11 @@ class _StudentDashboardState extends State<StudentDashboard> {
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
 
-      // Cargar datos en paralelo
+      // Cargar datos básicos en paralelo (con manejo de errores individual)
       final results = await Future.wait([
-        ApiService.getStudentAchievements(userId),
-        ApiService.getActiveMeetings(),
-        ApiService.getStudentAttendance(userId),
+        ApiService.getStudentAchievements(userId).catchError((e) => []),
+        ApiService.getActiveMeetings().catchError((e) => []),
+        ApiService.getStudentAttendance(userId).catchError((e) => []),
       ]);
 
       if (mounted) {
@@ -48,31 +50,37 @@ class _StudentDashboardState extends State<StudentDashboard> {
           _achievements = results[0];
           _activeMeetings = results[1];
           _attendanceHistory = results[2];
-
-          // Procesar eventos del calendario
-          _attendanceEvents.clear();
-          if (_attendanceHistory != null) {
-            for (var record in _attendanceHistory!) {
-              // Verificar que meeting_date no sea null
-              if (record['meeting_date'] == null) continue;
-
-              final date = DateTime.parse(record['meeting_date']);
-              final normalizedDate = DateTime(date.year, date.month, date.day);
-
-              if (_attendanceEvents[normalizedDate] == null) {
-                _attendanceEvents[normalizedDate] = [];
-              }
-              _attendanceEvents[normalizedDate]!.add(record);
-            }
-          }
-
           _isLoading = false;
         });
+
+        // Intentar cargar horarios sin romper el resto de la app
+        try {
+          final schedules = await ApiService.getSchedules();
+          if (mounted) {
+            setState(() => _schedules = schedules);
+          }
+        } catch (e) {
+          print('Nota: El servidor aún no soporta la ruta de horarios.');
+        }
+
+        // Procesar eventos del calendario
+        _attendanceEvents.clear();
+        if (_attendanceHistory != null) {
+          for (var record in _attendanceHistory!) {
+            if (record['meeting_date'] == null) continue;
+            final date = DateTime.parse(record['meeting_date']);
+            final normalizedDate = DateTime(date.year, date.month, date.day);
+            if (_attendanceEvents[normalizedDate] == null) {
+              _attendanceEvents[normalizedDate] = [];
+            }
+            _attendanceEvents[normalizedDate]!.add(record);
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        print('Error loading student data: $e');
+        print('Error crítico cargando datos del estudiante: $e');
       }
     }
   }
@@ -104,6 +112,10 @@ class _StudentDashboardState extends State<StudentDashboard> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
+              // 🧹 Limpieza al cerrar sesión
+              await MeetingCleanupService.cleanupActiveMeeting();
+              WindowService().terminateSecondaryWindows();
+
               await Supabase.instance.client.auth.signOut();
               if (context.mounted) {
                 Navigator.pushReplacementNamed(context, '/login');
@@ -191,9 +203,63 @@ class _StudentDashboardState extends State<StudentDashboard> {
                         );
                       },
                     ),
+                  
+                  const SizedBox(height: 20),
+                  _buildSectionTitle('Mi Horario Semanal'),
+                  const SizedBox(height: 10),
+                  _buildSchedulesList(),
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _buildSchedulesList() {
+    if (_schedules == null || _schedules!.isEmpty) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('No hay clases programadas para esta semana.'),
+        ),
+      );
+    }
+
+    final days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    
+    // Agrupar por día
+    final grouped = <int, List<dynamic>>{};
+    for (var s in _schedules!) {
+      final day = s['day_of_week'] as int;
+      if (grouped[day] == null) grouped[day] = [];
+      grouped[day]!.add(s);
+    }
+
+    // Ordenar días
+    final sortedDays = grouped.keys.toList()..sort();
+
+    return Column(
+      children: sortedDays.map((dayNum) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                days[dayNum],
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.orange),
+              ),
+            ),
+            ...grouped[dayNum]!.map((schedule) => Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                leading: const Icon(Icons.calendar_month, color: Colors.orange),
+                title: Text(schedule['subject']),
+                subtitle: Text('${schedule['start_time']} - ${schedule['end_time']}'),
+              ),
+            )),
+          ],
+        );
+      }).toList(),
     );
   }
 
@@ -230,9 +296,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
     try {
       print('🎥 Intentando unirse a reunión: ${meeting['channelName']}');
 
-      final joinData = await ApiService.joinMeeting(
-        meeting['channelName'],
-      );
+      final joinData = await ApiService.joinMeeting(meeting['channelName']);
 
       final user = Supabase.instance.client.auth.currentUser;
       final session = Supabase.instance.client.auth.currentSession;
@@ -248,7 +312,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
       if (mounted) {
         print('🚀 Abriendo sala de espera en ventana secundaria...');
-        
+
         await WindowService().openWaitingRoomWindow(
           channelName: joinData['channelName'],
           token: joinData['token'],

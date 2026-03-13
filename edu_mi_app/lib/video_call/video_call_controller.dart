@@ -27,6 +27,7 @@ class VideoCallController {
   Timer? _joinTimeoutTimer;
   bool _isCameraDisabledByNetwork = false; // 📡 Cámara desactivada por mala red
   bool _isNetworkQualityLow = false; // 📡 Rastrear estado de red
+  bool _isDisposed = false; // 🧹 Flag para evitar doble-dispose
 
   VideoCallController({
     required this.channelName,
@@ -336,7 +337,16 @@ class VideoCallController {
   }
 
   Future<void> leaveAndDispose() async {
+    // Evitar doble-dispose
+    if (_isDisposed) {
+      print('⚠️ Controlador ya fue dispuesto, ignorando solicitud duplicada');
+      return;
+    }
+    
     print('🧹 Limpiando controlador de video...');
+    
+    // Marcar como dispuesto inmediatamente para prevenir llamadas concurrentes
+    _isDisposed = true;
     
     // Notificar salida (una sola vez)
     await notifyLeaveChannel();
@@ -349,16 +359,26 @@ class VideoCallController {
     } catch (e) {
       print('Error al cerrar Agora: $e');
     }
-    localUserJoined.dispose();
-    isAudioMuted.dispose();
-    isVideoMuted.dispose();
-    remoteUids.dispose();
-    remoteScreenShareUids.dispose();
-    otherUserLeft.dispose();
+    
+    // Disponer los ValueNotifiers
+    try {
+      localUserJoined.dispose();
+      isAudioMuted.dispose();
+      isVideoMuted.dispose();
+      remoteUids.dispose();
+      remoteScreenShareUids.dispose();
+      otherUserLeft.dispose();
+    } catch (e) {
+      print('⚠️ Error al disponer ValueNotifiers: $e');
+    }
   }
 
   void dispose() {
-    leaveAndDispose();
+    // El dispose() sincrónico solo marca que debe limpiarse
+    // La limpieza real ocurre en leaveAndDispose() que es asincrónico
+    if (!_isDisposed) {
+      _isDisposed = true;
+    }
   }
 
   // Estos métodos ahora serán llamados por el event handler

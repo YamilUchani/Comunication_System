@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 import '../video_call/video_call_screen.dart';
 import '../services/api_service.dart';
+import '../services/meeting_cleanup_service.dart';
+import '../services/window_service.dart';
 
 class WaitingForAssignmentScreen extends StatefulWidget {
   const WaitingForAssignmentScreen({super.key});
@@ -271,6 +273,10 @@ class _WaitingForAssignmentScreenState
                 // Botón de cerrar sesión
                 OutlinedButton.icon(
                   onPressed: () async {
+                    // 🧹 Limpieza al cerrar sesión
+                    await MeetingCleanupService.cleanupActiveMeeting();
+                    WindowService().terminateSecondaryWindows();
+
                     await Supabase.instance.client.auth.signOut();
                     if (context.mounted) {
                       Navigator.of(

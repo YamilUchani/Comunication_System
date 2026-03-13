@@ -166,6 +166,56 @@ class ApiService {
     }
   }
 
+  static Future<List<dynamic>> getSchedules() async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/meetings/schedules'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body)['schedules'];
+    } else {
+      throw Exception('Error cargando horarios: ${response.body}');
+    }
+  }
+
+  static Future<Map<String, dynamic>> createSchedule({
+    required String subject,
+    required int dayOfWeek,
+    required String startTime,
+    required String endTime,
+    String? groupName,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/meetings/schedules'),
+      headers: await _getHeaders(),
+      body: jsonEncode({
+        'subject': subject,
+        'day_of_week': dayOfWeek,
+        'start_time': startTime,
+        'end_time': endTime,
+        'group_name': groupName,
+      }),
+    );
+
+    if (response.statusCode == 201) {
+      return jsonDecode(response.body)['schedule'];
+    } else {
+      throw Exception('Error programando clase: ${response.body}');
+    }
+  }
+
+  static Future<void> deleteSchedule(String id) async {
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/meetings/schedules/$id'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Error eliminando horario: ${response.body}');
+    }
+  }
+
   static Future<void> unlockAchievement(
     String studentId,
     String achievementId,

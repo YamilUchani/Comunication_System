@@ -137,12 +137,49 @@ router.post('/join', authenticateUser, async (req, res, next) => {
         }
 
         // Verificar si la reunión existe y está activa
-        const { data: meeting, error: meetingError } = await supabase
+        let { data: meeting, error: meetingError } = await supabase
             .from('meetings')
             .select('*')
             .eq('channel_name', channelName)
             .eq('is_active', true)
             .single();
+
+        // --- MANEJO DE REUNIONES PROGRAMADAS (VIRTUALES) ---
+        if ((meetingError || !meeting) && channelName.startsWith('sched-')) {
+            logger.info(`🔄 Activando reunión programada: ${channelName}`);
+            const scheduleId = channelName.split('-')[1];
+
+            const { data: schedule } = await supabase
+                .from('class_schedules')
+                .select('*')
+                .eq('id', scheduleId)
+                .single();
+
+            if (schedule && schedule.is_active) {
+                // Crear la reunión automáticamente
+                const now = new Date();
+                const expiresAt = new Date(now.getTime() + 4 * 60 * 60 * 1000); // 4 horas por defecto
+
+                const { data: newMeeting, error: createError } = await supabase
+                    .from('meetings')
+                    .insert({
+                        channel_name: channelName,
+                        title: schedule.subject,
+                        description: `Clase programada (${schedule.start_time})`,
+                        creator_id: schedule.teacher_id,
+                        expires_at: expiresAt.toISOString(),
+                        is_active: true,
+                        allowed_groups: [schedule.group_name]
+                    })
+                    .select()
+                    .single();
+
+                if (!createError) {
+                    meeting = newMeeting;
+                    meetingError = null;
+                }
+            }
+        }
 
         if (meetingError || !meeting) {
             logger.warn(`Reunión no encontrada/activa para join: ${channelName}`);
@@ -286,34 +323,86 @@ router.get('/active', authenticateUser, async (req, res, next) => {
             });
         }
 
-        // Obtener nombres de los creadores y sus roles
-        const creatorIds = [...new Set(filteredMeetings.map(m => m.creator_id))];
-        const { data: creators } = await supabase
-            .from('profiles')
-            .select('user_id, full_name, role')
-            .in('user_id', creatorIds);
-
+        // Obtener nombres de los creadores y sus roles para las reuniones reales
+        const realMeetings = filteredMeetings.filter(m => !m.is_virtual);
+        const creatorIds = [...new Set(realMeetings.map(m => m.creator_id))];
+        
         const creatorMap = {};
-        const roleMap = {}; // Mapa para guardar los roles
-        if (creators) {
-            creators.forEach(c => {
-                creatorMap[c.user_id] = c.full_name;
-                roleMap[c.user_id] = c.role; // Guardar el rol
-            });
+        const roleMap = {};
+
+        if (creatorIds.length > 0) {
+            const { data: creators } = await supabase
+                .from('profiles')
+                .select('user_id, full_name, role')
+                .in('user_id', creatorIds);
+
+            if (creators) {
+                creators.forEach(c => {
+                    creatorMap[c.user_id] = c.full_name;
+                    roleMap[c.user_id] = c.role;
+                });
+            }
+        }
+        const now = new Date();
+        const nowLocal = new Date(now.getTime() - (now.getTimezoneOffset() * 60000));
+        const currentDay = now.getDay(); // 0 (Dom) - 6 (Sab)
+        const currentTime = nowLocal.toISOString().split('T')[1].split('.')[0]; // HH:MM:SS
+        const todayStr = nowLocal.toISOString().split('T')[0];
+
+        const { data: activeSchedules } = await supabase
+            .from('class_schedules')
+            .select('*, profiles(full_name)')
+            .eq('day_of_week', currentDay)
+            .lte('start_time', currentTime)
+            .gte('end_time', currentTime)
+            .eq('is_active', true);
+
+        if (activeSchedules) {
+            for (const schedule of activeSchedules) {
+                // Verificar si ya hay una reunión real activa para este schedule hoy
+                const virtualChannelName = `sched-${schedule.id}-${todayStr}`;
+                const alreadyHasRealMeeting = filteredMeetings.some(m => 
+                    m.channel_name === virtualChannelName || 
+                    (m.title === schedule.subject && m.creator_id === schedule.teacher_id)
+                );
+
+                if (!alreadyHasRealMeeting) {
+                    // Validar si el usuario que consulta tiene permiso para ver este schedule
+                    const isMyGroup = profile.group_name === schedule.group_name;
+                    const isMySchedule = userId === schedule.teacher_id;
+                    const isAdmin = profile.role === 'administrator';
+
+                    if (isMyGroup || isMySchedule || isAdmin) {
+                        filteredMeetings.push({
+                            id: `virtual-${schedule.id}`,
+                            channel_name: virtualChannelName,
+                            title: `🕗 ${schedule.subject} (Programada)`,
+                            description: `Clase automática para el grupo ${schedule.group_name}`,
+                            creator_id: schedule.teacher_id,
+                            creatorName: schedule.profiles?.full_name || 'Sistema',
+                            creatorRole: 'teacher',
+                            created_at: todayStr + 'T' + schedule.start_time + 'Z',
+                            expires_at: todayStr + 'T' + schedule.end_time + 'Z',
+                            is_virtual: true
+                        });
+                    }
+                }
+            }
         }
 
         res.json({
             meetings: filteredMeetings.map(meeting => ({
                 id: meeting.id,
-                channelName: meeting.channel_name,
+                channelName: meeting.channelName || meeting.channel_name,
                 title: meeting.title,
                 description: meeting.description,
-                creatorId: meeting.creator_id,
-                creatorName: creatorMap[meeting.creator_id] || 'Desconocido',
-                creatorRole: roleMap[meeting.creator_id] || 'student', // Enviar el rol del creador
+                creatorId: meeting.creatorId || meeting.creator_id,
+                creatorName: meeting.creatorName || creatorMap[meeting.creator_id] || 'Desconocido',
+                creatorRole: meeting.creatorRole || roleMap[meeting.creator_id] || 'student',
                 createdAt: meeting.created_at,
                 expiresAt: meeting.expires_at,
-                allowedUsers: meeting.allowed_users || []
+                allowedUsers: meeting.allowed_users || [],
+                isVirtual: meeting.is_virtual || false
             }))
         });
     } catch (error) {
@@ -547,6 +636,102 @@ router.post('/cleanup-inactive', authenticateUser, async (req, res, next) => {
 
         logger.info(`✅ Limpiados ${inactive.length} participantes inactivos`);
         res.json({ cleaned: inactive.length });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * GET /api/meetings/schedules
+ * Obtiene las clases programadas para el usuario (maestro o estudiante)
+ */
+router.get('/schedules', authenticateUser, async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('role, group_name')
+            .eq('user_id', userId)
+            .single();
+
+        let query = supabase.from('class_schedules').select('*, profiles(full_name)');
+
+        if (profile.role === 'teacher') {
+            query = query.eq('teacher_id', userId);
+        } else if (profile.role === 'student') {
+            query = query.eq('group_name', profile.group_name);
+        }
+
+        const { data: schedules, error } = await query;
+
+        if (error) throw error;
+
+        res.json({ schedules: schedules || [] });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * POST /api/meetings/schedules
+ * Programa una nueva clase recurrente
+ */
+router.post('/schedules', authenticateUser, async (req, res, next) => {
+    try {
+        const { subject, day_of_week, start_time, end_time, group_name } = req.body;
+        const userId = req.user.id;
+
+        // Validar perfil
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('role, group_name')
+            .eq('user_id', userId)
+            .single();
+
+        if (profile.role !== 'teacher' && profile.role !== 'administrator') {
+            return res.status(403).json({ error: { message: 'Solo maestros pueden programar clases' } });
+        }
+
+        const { data: schedule, error } = await supabase
+            .from('class_schedules')
+            .insert({
+                subject,
+                day_of_week: parseInt(day_of_week),
+                start_time,
+                end_time,
+                teacher_id: userId,
+                group_name: group_name || profile.group_name,
+                is_active: true
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        res.status(201).json({ schedule });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * DELETE /api/meetings/schedules/:id
+ * Elimina una clase programada
+ */
+router.delete('/schedules/:id', authenticateUser, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.id;
+
+        const { error } = await supabase
+            .from('class_schedules')
+            .delete()
+            .eq('id', id)
+            .eq('teacher_id', userId); // Solo el dueño puede borrarla
+
+        if (error) throw error;
+
+        res.json({ success: true });
     } catch (error) {
         next(error);
     }

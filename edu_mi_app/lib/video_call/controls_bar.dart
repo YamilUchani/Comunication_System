@@ -3,7 +3,6 @@ import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'video_call_controller.dart';
 import 'screen_selection_screen.dart';
 import 'screen_sharing_windows.dart';
-import 'chat/chat_screen.dart';
 import 'chat/chat_controller.dart';
 import 'device_manager.dart';
 
@@ -13,6 +12,8 @@ class ControlsBar extends StatelessWidget {
   final ChatController chatController;
   final Map<String, String> users;
   final DeviceManager? deviceManager; // Ahora es nullable
+  final VoidCallback? onExit; // Callback opcional para salir correctamente
+  final VoidCallback? onToggleChat; // Callback para toggle del chat
 
   const ControlsBar({
     super.key,
@@ -21,6 +22,8 @@ class ControlsBar extends StatelessWidget {
     required this.chatController,
     required this.users,
     required this.deviceManager,
+    this.onExit,
+    this.onToggleChat,
   });
 
   @override
@@ -266,17 +269,11 @@ class ControlsBar extends StatelessWidget {
                           color: Colors.white,
                           size: 30,
                         ),
-                        onPressed: () async {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ChatScreen(
-                                chatController: chatController,
-                                users: users,
-                              ),
-                            ),
+                        onPressed: onToggleChat ?? () {
+                          // onToggleChat debe ser proporcionado por VideoCallScreen
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Chat no disponible')),
                           );
-                          chatController.markMessagesAsRead();
                         },
                       ),
                       if (hasUnread)
@@ -312,7 +309,15 @@ class ControlsBar extends StatelessWidget {
               // Botón de colgar
               IconButton(
                 icon: const Icon(Icons.call_end, color: Colors.red, size: 30),
-                onPressed: () => Navigator.pop(context),
+                onPressed: () {
+                  if (onExit != null) {
+                    // Si hay un callback para salir, usarlo
+                    onExit!();
+                  } else {
+                    // Fallback: simplemente pop si no hay callback
+                    Navigator.pop(context);
+                  }
+                },
               ),
             ],
           ),
