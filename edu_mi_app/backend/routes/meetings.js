@@ -271,7 +271,101 @@ router.get('/active', authenticateUser, async (req, res, next) => {
             });
         }
 
-        // Query base de reuniones activas
+        // --- PROCESAR E INSERTAR HORARIOS ACTIVOS "JUST IN TIME" ---
+        const now = new Date();
+        const currentDay = now.getUTCDay(); // 0 (Dom) - 6 (Sab) en UTC puro
+        
+        // Formateamos la hora en UTC puro (HH:MM:SS)
+        const utcHours = now.getUTCHours().toString().padStart(2, '0');
+        const utcMinutes = now.getUTCMinutes().toString().padStart(2, '0');
+        const utcSeconds = now.getUTCSeconds().toString().padStart(2, '0');
+        const currentTime = `${utcHours}:${utcMinutes}:${utcSeconds}`;
+        
+        // Fecha de hoy en formato YYYY-MM-DD
+        const todayStr = now.toISOString().split('T')[0];
+
+        // Obtenemos los horarios de hoy y ayer (por si la clase cruza la medianoche UTC)
+        const previousDay = (currentDay + 6) % 7;
+        
+        const { data: allSchedules } = await supabase
+            .from('class_schedules')
+            .select('*')
+            .in('day_of_week', [currentDay, previousDay])
+            .eq('is_active', true);
+
+        if (allSchedules && allSchedules.length > 0) {
+            const activeVirtualChannels = [];
+            const virtualToScheduleMap = {};
+
+            for (const schedule of allSchedules) {
+                const start = schedule.start_time;
+                const end = schedule.end_time;
+                let isActiveNow = false;
+                
+                if (start <= end) {
+                    // Caso normal: no cruza la medianoche
+                    if (schedule.day_of_week === currentDay && currentTime >= start && currentTime <= end) {
+                        isActiveNow = true;
+                    }
+                } else {
+                    // Caso cruza medianoche: ej. start=22:00:00, end=02:00:00
+                    if (schedule.day_of_week === currentDay && currentTime >= start) {
+                        isActiveNow = true;
+                    } else if (schedule.day_of_week === previousDay && currentTime <= end) {
+                        isActiveNow = true;
+                    }
+                }
+                
+                if (isActiveNow) {
+                    const isNextDay = schedule.day_of_week === previousDay;
+                    let scheduleDateStr = todayStr;
+                    if (isNextDay) {
+                        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                        scheduleDateStr = yesterday.toISOString().split('T')[0];
+                    }
+                    const virtualChannelName = `sched-${schedule.id}-${scheduleDateStr}`;
+                    activeVirtualChannels.push(virtualChannelName);
+                    
+                    virtualToScheduleMap[virtualChannelName] = {
+                        schedule,
+                        expiresAt: (isNextDay ? todayStr : scheduleDateStr) + 'T' + schedule.end_time + 'Z'
+                    };
+                }
+            }
+
+            if (activeVirtualChannels.length > 0) {
+                // Verificar cuáles de estos canales ya existen en la tabla reuniones (así estén activos o inactivos no queremos duplicar)
+                const { data: existingMeetings } = await supabase
+                    .from('meetings')
+                    .select('channel_name')
+                    .in('channel_name', activeVirtualChannels);
+
+                const existingNames = new Set((existingMeetings || []).map(m => m.channel_name));
+
+                // Filtrar las que aún no han sido insertadas
+                const toInsert = activeVirtualChannels
+                    .filter(name => !existingNames.has(name))
+                    .map(name => {
+                        const data = virtualToScheduleMap[name];
+                        return {
+                            channel_name: name,
+                            title: `🕗 ${data.schedule.subject} (Programada)`,
+                            description: `Clase automática para el grupo ${data.schedule.group_name}`,
+                            creator_id: data.schedule.teacher_id,
+                            is_active: true,
+                            expires_at: data.expiresAt,
+                            allowed_groups: [data.schedule.group_name]
+                        };
+                    });
+
+                if (toInsert.length > 0) {
+                    // Insertar todas las reuniones programadas faltantes al vuelo
+                    await supabase.from('meetings').insert(toInsert);
+                }
+            }
+        }
+
+        // --- QUERY NORMAL A LA BASE DE DATOS (Las recién insertadas ya estarán aquí) ---
         let query = supabase
             .from('meetings')
             .select('id, channel_name, title, description, creator_id, created_at, expires_at, allowed_groups, allowed_users')
@@ -330,9 +424,8 @@ router.get('/active', authenticateUser, async (req, res, next) => {
             });
         }
 
-        // Obtener nombres de los creadores y sus roles para las reuniones reales
-        const realMeetings = filteredMeetings.filter(m => !m.is_virtual);
-        const creatorIds = [...new Set(realMeetings.map(m => m.creator_id))];
+        // Obtener nombres de los creadores y sus roles para las reuniones
+        const creatorIds = [...new Set(filteredMeetings.map(m => m.creator_id))];
         
         const creatorMap = {};
         const roleMap = {};
@@ -351,99 +444,6 @@ router.get('/active', authenticateUser, async (req, res, next) => {
             }
         }
         
-        const now = new Date();
-        const currentDay = now.getUTCDay(); // 0 (Dom) - 6 (Sab) en UTC puro
-        
-        // Formateamos la hora en UTC puro (HH:MM:SS)
-        const utcHours = now.getUTCHours().toString().padStart(2, '0');
-        const utcMinutes = now.getUTCMinutes().toString().padStart(2, '0');
-        const utcSeconds = now.getUTCSeconds().toString().padStart(2, '0');
-        const currentTime = `${utcHours}:${utcMinutes}:${utcSeconds}`;
-        
-        // Fecha de hoy en formato YYYY-MM-DD
-        const todayStr = now.toISOString().split('T')[0];
-
-        // Obtenemos los horarios de hoy y ayer (por si la clase cruza la medianoche UTC)
-        const previousDay = (currentDay + 6) % 7;
-        
-        const { data: allSchedules } = await supabase
-            .from('class_schedules')
-            .select('*, profiles(full_name)')
-            .in('day_of_week', [currentDay, previousDay])
-            .eq('is_active', true);
-
-        const activeSchedules = [];
-        if (allSchedules) {
-            for (const schedule of allSchedules) {
-                const start = schedule.start_time;
-                const end = schedule.end_time;
-                let isActiveNow = false;
-                
-                if (start <= end) {
-                    // Caso normal: no cruza la medianoche
-                    if (schedule.day_of_week === currentDay && currentTime >= start && currentTime <= end) {
-                        isActiveNow = true;
-                    }
-                } else {
-                    // Caso cruza medianoche: ej. start=22:00:00, end=02:00:00
-                    if (schedule.day_of_week === currentDay && currentTime >= start) {
-                        // Antes de medianoche
-                        isActiveNow = true;
-                    } else if (schedule.day_of_week === previousDay && currentTime <= end) {
-                        // Después de medianoche, pero pertenece al día anterior
-                        isActiveNow = true;
-                    }
-                }
-                
-                if (isActiveNow) {
-                    activeSchedules.push(schedule);
-                }
-            }
-        }
-
-        if (activeSchedules && activeSchedules.length > 0) {
-            for (const schedule of activeSchedules) {
-                // Verificar si ya hay una reunión real activa para este schedule
-                // Si la clase cruza medianoche y estamos en el 'día siguiente', el todayStr 
-                // para el canal debería ser el día que empezó la clase
-                // Calcular fecha de inicio real de la clase para el canal de la reunión
-                const isNextDay = schedule.day_of_week === previousDay;
-                let scheduleDateStr = todayStr;
-                if (isNextDay) {
-                    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-                    scheduleDateStr = yesterday.toISOString().split('T')[0];
-                }
-
-                const virtualChannelName = `sched-${schedule.id}-${scheduleDateStr}`;
-                const alreadyHasRealMeeting = filteredMeetings.some(m => 
-                    m.channel_name === virtualChannelName || 
-                    (m.title === schedule.subject && m.creator_id === schedule.teacher_id)
-                );
-
-                if (!alreadyHasRealMeeting) {
-                    // Validar si el usuario que consulta tiene permiso para ver este schedule
-                    const isMyGroup = profile.group_name === schedule.group_name;
-                    const isMySchedule = userId === schedule.teacher_id;
-                    const isAdmin = profile.role === 'administrator';
-
-                    if (isMyGroup || isMySchedule || isAdmin) {
-                        filteredMeetings.push({
-                            id: `virtual-${schedule.id}`,
-                            channel_name: virtualChannelName,
-                            title: `🕗 ${schedule.subject} (Programada)`,
-                            description: `Clase automática para el grupo ${schedule.group_name}`,
-                            creator_id: schedule.teacher_id,
-                            creatorName: schedule.profiles?.full_name || 'Sistema',
-                            creatorRole: 'teacher',
-                            created_at: scheduleDateStr + 'T' + schedule.start_time + 'Z',
-                            expires_at: (isNextDay ? todayStr : scheduleDateStr) + 'T' + schedule.end_time + 'Z',
-                            is_virtual: true
-                        });
-                    }
-                }
-            }
-        }
-
         res.json({
             meetings: filteredMeetings.map(meeting => ({
                 id: meeting.id,
