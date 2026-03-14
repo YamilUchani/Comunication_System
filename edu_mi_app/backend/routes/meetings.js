@@ -344,10 +344,15 @@ router.get('/active', authenticateUser, async (req, res, next) => {
             }
         }
         const now = new Date();
-        const nowLocal = new Date(now.getTime() - (now.getTimezoneOffset() * 60000));
-        const currentDay = now.getDay(); // 0 (Dom) - 6 (Sab)
-        const currentTime = nowLocal.toISOString().split('T')[1].split('.')[0]; // HH:MM:SS
-        const todayStr = nowLocal.toISOString().split('T')[0];
+        
+        // Ajuste horario forzado para Bolivia (UTC-4) porque el servidor en la nube (Render) usa UTC
+        const utcOffsetMs = -4 * 60 * 60 * 1000;
+        const localNow = new Date(now.getTime() + utcOffsetMs);
+        
+        const currentDay = localNow.getUTCDay(); // 0 (Dom) - 6 (Sab) basado en la hora UTC-4
+        const currentTime = localNow.toISOString().split('T')[1].split('.')[0]; // Formato HH:MM:SS
+        const todayStr = localNow.toISOString().split('T')[0];
+
 
         const { data: activeSchedules } = await supabase
             .from('class_schedules')
