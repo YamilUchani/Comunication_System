@@ -343,29 +343,71 @@ router.get('/active', authenticateUser, async (req, res, next) => {
                 });
             }
         }
+        
         const now = new Date();
+        const currentDay = now.getUTCDay(); // 0 (Dom) - 6 (Sab) en UTC puro
         
-        // Ajuste horario forzado para Bolivia (UTC-4) porque el servidor en la nube (Render) usa UTC
-        const utcOffsetMs = -4 * 60 * 60 * 1000;
-        const localNow = new Date(now.getTime() + utcOffsetMs);
+        // Formateamos la hora en UTC puro (HH:MM:SS)
+        const utcHours = now.getUTCHours().toString().padStart(2, '0');
+        const utcMinutes = now.getUTCMinutes().toString().padStart(2, '0');
+        const utcSeconds = now.getUTCSeconds().toString().padStart(2, '0');
+        const currentTime = `${utcHours}:${utcMinutes}:${utcSeconds}`;
         
-        const currentDay = localNow.getUTCDay(); // 0 (Dom) - 6 (Sab) basado en la hora UTC-4
-        const currentTime = localNow.toISOString().split('T')[1].split('.')[0]; // Formato HH:MM:SS
-        const todayStr = localNow.toISOString().split('T')[0];
+        // Fecha de hoy en formato YYYY-MM-DD
+        const todayStr = now.toISOString().split('T')[0];
 
-
-        const { data: activeSchedules } = await supabase
+        // Obtenemos los horarios de hoy y ayer (por si la clase cruza la medianoche UTC)
+        const previousDay = (currentDay + 6) % 7;
+        
+        const { data: allSchedules } = await supabase
             .from('class_schedules')
             .select('*, profiles(full_name)')
-            .eq('day_of_week', currentDay)
-            .lte('start_time', currentTime)
-            .gte('end_time', currentTime)
+            .in('day_of_week', [currentDay, previousDay])
             .eq('is_active', true);
 
-        if (activeSchedules) {
+        const activeSchedules = [];
+        if (allSchedules) {
+            for (const schedule of allSchedules) {
+                const start = schedule.start_time;
+                const end = schedule.end_time;
+                let isActiveNow = false;
+                
+                if (start <= end) {
+                    // Caso normal: no cruza la medianoche
+                    if (schedule.day_of_week === currentDay && currentTime >= start && currentTime <= end) {
+                        isActiveNow = true;
+                    }
+                } else {
+                    // Caso cruza medianoche: ej. start=22:00:00, end=02:00:00
+                    if (schedule.day_of_week === currentDay && currentTime >= start) {
+                        // Antes de medianoche
+                        isActiveNow = true;
+                    } else if (schedule.day_of_week === previousDay && currentTime <= end) {
+                        // Después de medianoche, pero pertenece al día anterior
+                        isActiveNow = true;
+                    }
+                }
+                
+                if (isActiveNow) {
+                    activeSchedules.push(schedule);
+                }
+            }
+        }
+
+        if (activeSchedules && activeSchedules.length > 0) {
             for (const schedule of activeSchedules) {
-                // Verificar si ya hay una reunión real activa para este schedule hoy
-                const virtualChannelName = `sched-${schedule.id}-${todayStr}`;
+                // Verificar si ya hay una reunión real activa para este schedule
+                // Si la clase cruza medianoche y estamos en el 'día siguiente', el todayStr 
+                // para el canal debería ser el día que empezó la clase
+                // Calcular fecha de inicio real de la clase para el canal de la reunión
+                const isNextDay = schedule.day_of_week === previousDay;
+                let scheduleDateStr = todayStr;
+                if (isNextDay) {
+                    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                    scheduleDateStr = yesterday.toISOString().split('T')[0];
+                }
+
+                const virtualChannelName = `sched-${schedule.id}-${scheduleDateStr}`;
                 const alreadyHasRealMeeting = filteredMeetings.some(m => 
                     m.channel_name === virtualChannelName || 
                     (m.title === schedule.subject && m.creator_id === schedule.teacher_id)
@@ -386,8 +428,8 @@ router.get('/active', authenticateUser, async (req, res, next) => {
                             creator_id: schedule.teacher_id,
                             creatorName: schedule.profiles?.full_name || 'Sistema',
                             creatorRole: 'teacher',
-                            created_at: todayStr + 'T' + schedule.start_time + 'Z',
-                            expires_at: todayStr + 'T' + schedule.end_time + 'Z',
+                            created_at: scheduleDateStr + 'T' + schedule.start_time + 'Z',
+                            expires_at: (isNextDay ? todayStr : scheduleDateStr) + 'T' + schedule.end_time + 'Z',
                             is_virtual: true
                         });
                     }

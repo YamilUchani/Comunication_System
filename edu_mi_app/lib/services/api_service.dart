@@ -166,6 +166,83 @@ class ApiService {
     }
   }
 
+  // ==== FUNCIONES DE CONVERSIÓN DE ZONA HORARIA ====
+  
+  // Convierte un horario local a UTC para enviar al servidor
+  static Map<String, dynamic> _localToUtcSchedule(int localDay, String startTime, String endTime) {
+    int dartDay = localDay == 0 ? 7 : localDay;
+    final now = DateTime.now();
+    final baseDate = DateTime(now.year, now.month, now.day);
+    
+    // Sumamos días hasta llegar al primer 'dartDay' (usamos +7 para asegurar saltar posibles problemas de DST de dias pasados)
+    DateTime localStart = baseDate.add(Duration(days: (dartDay - baseDate.weekday + 7) % 7 + 7));
+    
+    final startParts = startTime.split(':');
+    final endParts = endTime.split(':');
+    
+    localStart = DateTime(localStart.year, localStart.month, localStart.day, 
+                          int.parse(startParts[0]), int.parse(startParts[1]));
+                          
+    DateTime localEnd = DateTime(localStart.year, localStart.month, localStart.day, 
+                                 int.parse(endParts[0]), int.parse(endParts[1]));
+                                 
+    // Si la hora de fin es menor a la de inicio, significa que cruza la medianoche
+    if (int.parse(endParts[0]) < int.parse(startParts[0])) {
+      localEnd = localEnd.add(const Duration(days: 1));
+    }
+    
+    DateTime utcStart = localStart.toUtc();
+    DateTime utcEnd = localEnd.toUtc();
+    
+    int utcDay = utcStart.weekday == 7 ? 0 : utcStart.weekday;
+    String outStart = '${utcStart.hour.toString().padLeft(2, '0')}:${utcStart.minute.toString().padLeft(2, '0')}:00';
+    String outEnd = '${utcEnd.hour.toString().padLeft(2, '0')}:${utcEnd.minute.toString().padLeft(2, '0')}:00';
+    
+    return {
+      'dayOfWeek': utcDay,
+      'startTime': outStart,
+      'endTime': outEnd,
+    };
+  }
+
+  // Convierte un horario UTC del servidor a hora local para mostrar en la interfaz
+  static Map<String, dynamic> _utcToLocalSchedule(Map<String, dynamic> schedule) {
+    final utcDay = schedule['day_of_week'] as int;
+    final dartDay = utcDay == 0 ? 7 : utcDay;
+    
+    final startParts = schedule['start_time'].toString().split(':');
+    final endParts = schedule['end_time'].toString().split(':');
+    
+    final now = DateTime.now().toUtc();
+    final baseDate = DateTime.utc(now.year, now.month, now.day);
+    
+    DateTime utcStart = baseDate.add(Duration(days: (dartDay - baseDate.weekday + 7) % 7 + 7));
+    utcStart = DateTime.utc(utcStart.year, utcStart.month, utcStart.day, 
+                            int.parse(startParts[0]), int.parse(startParts[1]));
+                            
+    DateTime utcEnd = DateTime.utc(utcStart.year, utcStart.month, utcStart.day, 
+                                   int.parse(endParts[0]), int.parse(endParts[1]));
+                                   
+    if (int.parse(endParts[0]) < int.parse(startParts[0])) {
+      utcEnd = utcEnd.add(const Duration(days: 1));
+    }
+    
+    DateTime localStart = utcStart.toLocal();
+    DateTime localEnd = utcEnd.toLocal();
+    
+    int localDay = localStart.weekday == 7 ? 0 : localStart.weekday;
+    String outStart = '${localStart.hour.toString().padLeft(2, '0')}:${localStart.minute.toString().padLeft(2, '0')}:00';
+    String outEnd = '${localEnd.hour.toString().padLeft(2, '0')}:${localEnd.minute.toString().padLeft(2, '0')}:00';
+    
+    return {
+      ...schedule,
+      'day_of_week': localDay,
+      'start_time': outStart,
+      'end_time': outEnd,
+      'utc_original_day': utcDay, // guardamos el original por si acaso
+    };
+  }
+
   static Future<List<dynamic>> getSchedules() async {
     final response = await http.get(
       Uri.parse('$_baseUrl/meetings/schedules'),
@@ -173,7 +250,8 @@ class ApiService {
     );
 
     if (response.statusCode == 200) {
-      return jsonDecode(response.body)['schedules'];
+      final List<dynamic> schedules = jsonDecode(response.body)['schedules'];
+      return schedules.map((s) => _utcToLocalSchedule(s as Map<String, dynamic>)).toList();
     } else {
       throw Exception('Error cargando horarios: ${response.body}');
     }
@@ -186,20 +264,23 @@ class ApiService {
     required String endTime,
     String? groupName,
   }) async {
+    final utcData = _localToUtcSchedule(dayOfWeek, startTime, endTime);
+    
     final response = await http.post(
       Uri.parse('$_baseUrl/meetings/schedules'),
       headers: await _getHeaders(),
       body: jsonEncode({
         'subject': subject,
-        'day_of_week': dayOfWeek,
-        'start_time': startTime,
-        'end_time': endTime,
+        'day_of_week': utcData['dayOfWeek'],
+        'start_time': utcData['startTime'],
+        'end_time': utcData['endTime'],
         'group_name': groupName,
       }),
     );
 
     if (response.statusCode == 201) {
-      return jsonDecode(response.body)['schedule'];
+      final schedule = jsonDecode(response.body)['schedule'] as Map<String, dynamic>;
+      return _utcToLocalSchedule(schedule);
     } else {
       throw Exception('Error programando clase: ${response.body}');
     }
