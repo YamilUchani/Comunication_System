@@ -147,13 +147,20 @@ router.post('/join', authenticateUser, async (req, res, next) => {
         // --- MANEJO DE REUNIONES PROGRAMADAS (VIRTUALES) ---
         if ((meetingError || !meeting) && channelName.startsWith('sched-')) {
             logger.info(`🔄 Activando reunión programada: ${channelName}`);
-            const scheduleId = channelName.split('-')[1];
+            
+            // Extraer UUID correcto: sched-[UUID]-YYYY-MM-DD
+            const match = channelName.match(/^sched-([a-f0-9\-]{36})-(.*)$/);
+            const scheduleId = match ? match[1] : null;
 
-            const { data: schedule } = await supabase
-                .from('class_schedules')
-                .select('*')
-                .eq('id', scheduleId)
-                .single();
+            let schedule = null;
+            if (scheduleId) {
+                const { data } = await supabase
+                    .from('class_schedules')
+                    .select('*')
+                    .eq('id', scheduleId)
+                    .single();
+                schedule = data;
+            }
 
             if (schedule && schedule.is_active) {
                 // Crear la reunión automáticamente

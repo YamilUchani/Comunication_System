@@ -365,6 +365,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
   Widget _buildMeetingCard(dynamic meeting) {
     final isCreator =
         meeting['creatorId'] == Supabase.instance.client.auth.currentUser?.id;
+    final isVirtual = meeting['isVirtual'] == true;
 
     return Card(
       margin: const EdgeInsets.all(8),
@@ -387,7 +388,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
               style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
               child: const Text('Unirse'),
             ),
-            if (isCreator) ...[
+            if (isCreator && !isVirtual) ...[
               const SizedBox(width: 8),
               IconButton(
                 icon: const Icon(Icons.stop_circle, color: Colors.red),
