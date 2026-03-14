@@ -14,6 +14,7 @@ import 'chat/chat_controller.dart';
 import 'package:window_manager/window_manager.dart';
 import '../main.dart' as main_module;
 import '../services/meeting_cleanup_service.dart';
+import '../services/window_service.dart';
 
 class StudentVideoCallScreen extends StatefulWidget {
   final String channelName;
@@ -539,7 +540,100 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
   }
 
 
-  // ========== DIÁLOGO DE CONFIRMACIÓN ==========
+  // ========== DIÁLOGOS DE CONFIRMACIÓN ==========
+  void _showReturnDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.grey[900],
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  '¿Volver a la sala de espera?',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 25),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey[800],
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text('Cancelar', style: TextStyle(fontSize: 13)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _returnToWaitingRoom();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange[600],
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text('Volver', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _returnToWaitingRoom() async {
+    print('🚪 Retornando a la sala de espera...');
+    try {
+      if (_isAutoShareActive) {
+        await _stopScreenShare();
+      }
+      
+      // Desconectar recursos pero NO cerrar la app entera aún
+      await controller.leaveAndDispose();
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      if (main_module.isSecondaryWindow) {
+        // Lanzar la sala de espera con los mismos datos
+        await WindowService().openWaitingRoomWindow(
+          channelName: widget.channelName,
+          token: widget.token,
+          userName: widget.userName,
+          meetingTitle: 'Reunión en progreso',
+          meetingId: widget.meetingId,
+          authToken: widget.authToken,
+        );
+        
+        // Matar el proceso actual de videollamada
+        await Future.delayed(const Duration(milliseconds: 200));
+        exit(0);
+      } else {
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      print('⚠️ Error al volver a sala de espera: $e');
+    }
+  }
+
   void _showExitDialog() {
     showDialog(
       context: context,
@@ -1056,7 +1150,19 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
                 },
               ),
               
-              const SizedBox(height: 24),
+              const SizedBox(height: 12),
+
+              // 🚪 Volver a sala de espera
+              _buildVerticalControlButton(
+                icon: Icons.meeting_room,
+                label: 'Volver',
+                color: Colors.orange[400]!,
+                onPressed: () {
+                  _showReturnDialog();
+                },
+              ),
+
+              const SizedBox(height: 12),
 
               // ❌ Salir
               _buildVerticalControlButton(
