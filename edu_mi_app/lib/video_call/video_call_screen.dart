@@ -14,6 +14,7 @@ import 'chat/chat_controller.dart';
 import 'chat/chat_screen.dart';
 import 'device_manager.dart'; // Importa el DeviceManager
 import '../services/meeting_cleanup_service.dart';
+import 'package:window_manager/window_manager.dart';
 
 class VideoCallScreen extends StatefulWidget {
   final String channelName;
@@ -38,7 +39,7 @@ class VideoCallScreen extends StatefulWidget {
   _VideoCallScreenState createState() => _VideoCallScreenState();
 }
 
-class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingObserver {
+class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingObserver, WindowListener {
   late final VideoCallController controller;
   ScreenShareController? screenController;
   late ChatController chatController;
@@ -51,6 +52,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (Platform.isWindows) {
+      windowManager.addListener(this);
+      windowManager.setPreventClose(true); // Evitar cierre directo con la 'X'
+    }
     controller = VideoCallController(
       channelName: widget.channelName,
       token: widget.token,
@@ -73,6 +78,14 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
       print('⚠️ Error al salir: $e');
     }
     return AppExitResponse.exit;
+  }
+
+  @override
+  void onWindowClose() async {
+    bool isPreventClose = await windowManager.isPreventClose();
+    if (isPreventClose) {
+      _showExitDialog();
+    }
   }
 
   Future<void> _initAgora() async {
@@ -339,6 +352,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
 
   @override
   void dispose() {
+    if (Platform.isWindows) {
+      windowManager.removeListener(this);
+    }
     WidgetsBinding.instance.removeObserver(this);
     // leaveAndDispose ya fue llamado en _exitMeeting() o didRequestAppExit()
     // controller.dispose() ahora es sincrónico y seguro llamar múltiples veces

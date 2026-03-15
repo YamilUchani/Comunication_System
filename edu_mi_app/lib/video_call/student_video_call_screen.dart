@@ -40,7 +40,7 @@ class StudentVideoCallScreen extends StatefulWidget {
 }
 
 class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, WindowListener {
   late final VideoCallController controller;
   ScreenShareController? screenController;
   ChatController? chatController;
@@ -120,6 +120,10 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
   void initState() {    print('🔴 [StudentVideoCallScreenState] initState() INICIANDO');    print('🔴 [StudentVideoCallScreen] initState() INICIANDO');
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (Platform.isWindows) {
+      windowManager.addListener(this);
+      windowManager.setPreventClose(true); // Evitar cierre directo con la 'X'
+    }
     controller = VideoCallController(
       channelName: widget.channelName,
       token: widget.token,
@@ -143,6 +147,14 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
       print('⚠️ Error al salir: $e');
     }
     return AppExitResponse.exit;
+  }
+
+  @override
+  void onWindowClose() async {
+    bool isPreventClose = await windowManager.isPreventClose();
+    if (isPreventClose) {
+      _showExitDialog();
+    }
   }
 
   Future<void> _initAgora() async {
@@ -1252,6 +1264,7 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
         windowManager.setAlwaysOnTop(false);
         windowManager.setSize(const Size(850, 520));
       }
+      windowManager.removeListener(this);
     }
     WidgetsBinding.instance.removeObserver(this);
     controller.remoteUids.removeListener(_onRemoteUidsChanged);
