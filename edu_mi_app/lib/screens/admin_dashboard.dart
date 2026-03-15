@@ -4,6 +4,7 @@ import '../services/api_service.dart';
 import '../services/window_service.dart';
 import '../services/meeting_cleanup_service.dart';
 import '../video_call/video_call_screen.dart';
+import 'materials_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -91,6 +92,17 @@ class _AdminDashboardState extends State<AdminDashboard> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  _buildCard(
+                    context,
+                    'Espacio de Material',
+                    'Gestiona los modelos y recursos para estudiantes',
+                    Icons.dashboard_customize,
+                    Colors.teal,
+                    () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const MaterialsScreen(isAdmin: true)),
+                    ),
+                  ),
                   const Divider(height: 30),
 
                   // Sección de Reuniones Activas (Expandible)

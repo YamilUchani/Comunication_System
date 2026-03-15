@@ -48,6 +48,8 @@ dependencies:
   ffi: ^2.0.0
   table_calendar: ^3.0.9
   window_manager: ^0.3.7
+  file_picker: ^10.3.10
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
