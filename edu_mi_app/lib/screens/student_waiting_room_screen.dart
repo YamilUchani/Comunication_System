@@ -27,7 +27,7 @@ class StudentWaitingRoomScreen extends StatefulWidget {
       _StudentWaitingRoomScreenState();
 }
 
-class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> {
+class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> with WindowListener {
   bool _isJoining = false;
   bool _isMinimized = false;
   Size _originalWindowSize = const Size(250, 200);
@@ -38,7 +38,87 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> {
   @override
   void initState() {
     super.initState();
+    if (Platform.isWindows) {
+      windowManager.addListener(this);
+      windowManager.setPreventClose(true); // Evitar cierre directo con la 'X'
+    }
     _initializeWindow();
+  }
+
+  @override
+  void dispose() {
+    if (Platform.isWindows) {
+      windowManager.removeListener(this);
+    }
+    super.dispose();
+  }
+
+  @override
+  void onWindowClose() async {
+    bool isPreventClose = await windowManager.isPreventClose();
+    if (isPreventClose) {
+      _showExitDialog();
+    }
+  }
+
+  void _showExitDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.grey[900],
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  '¿Salir completamente de la clase?',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 25),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey[800],
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text('Cancelar', style: TextStyle(fontSize: 13)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          exit(0);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red[600],
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text('Salir', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _initializeWindow() async {
