@@ -14,6 +14,7 @@ class ControlsBar extends StatelessWidget {
   final DeviceManager? deviceManager; // Ahora es nullable
   final VoidCallback? onExit; // Callback opcional para salir correctamente
   final VoidCallback? onToggleChat; // Callback para toggle del chat
+  final VoidCallback? onToggleStudents; // Callback para toggle de la lista de estudiantes
 
   const ControlsBar({
     super.key,
@@ -24,6 +25,7 @@ class ControlsBar extends StatelessWidget {
     required this.deviceManager,
     this.onExit,
     this.onToggleChat,
+    this.onToggleStudents,
   });
 
   @override
@@ -256,6 +258,17 @@ class ControlsBar extends StatelessWidget {
                   chatController.sendReaction(reaction);
                 },
               ),
+
+              // Botón de lista de estudiantes
+              if (onToggleStudents != null)
+                IconButton(
+                  icon: const Icon(
+                    Icons.people,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                  onPressed: onToggleStudents,
+                ),
 
               // Botón de chat
               ValueListenableBuilder<bool>(

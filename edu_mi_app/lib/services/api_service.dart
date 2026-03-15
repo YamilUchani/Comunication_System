@@ -478,4 +478,40 @@ class ApiService {
       throw Exception('Error asignando logros: ${response.body}');
     }
   }
+
+  // ==========================================
+  // PARTICIPANT STATUS
+  // ==========================================
+
+  static Future<void> setEnteredCallStatus(String meetingId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/meetings/$meetingId/entered-call'),
+      headers: await _getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      print('⚠️ Error setting entered-call status: ${response.body}');
+    }
+  }
+
+  static Future<void> setBackToWaitingRoomStatus(String meetingId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/meetings/$meetingId/back-to-waiting-room'),
+      headers: await _getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      print('⚠️ Error setting back-to-waiting-room status: ${response.body}');
+    }
+  }
+
+  static Future<List<dynamic>> getStudentsStatus(String meetingId) async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/meetings/$meetingId/students-status'),
+      headers: await _getHeaders(),
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body)['students'] ?? [];
+    } else {
+      throw Exception('Error fetching students status: ${response.body}');
+    }
+  }
 }

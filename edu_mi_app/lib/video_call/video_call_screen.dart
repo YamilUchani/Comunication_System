@@ -15,6 +15,8 @@ import 'chat/chat_screen.dart';
 import 'device_manager.dart'; // Importa el DeviceManager
 import '../services/meeting_cleanup_service.dart';
 import 'package:window_manager/window_manager.dart';
+import '../services/api_service.dart';
+import 'dart:async';
 
 class VideoCallScreen extends StatefulWidget {
   final String channelName;
@@ -47,6 +49,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
   final Map<String, String> users = {};
   int? localUid;
   bool _showChat = false; // 💬 Control de visibilidad del chat
+  bool _showStudents = false; // 👥 Control de visibilidad de lista de estudiantes
+  List<dynamic> _studentsList = [];
+  Timer? _studentsTimer;
 
   @override
   void initState() {
@@ -151,9 +156,40 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
   void _toggleChat() {
     setState(() {
       _showChat = !_showChat;
+      if (_showChat) _showStudents = false; // Cerrar el otro panel
     });
     if (_showChat) {
       chatController.markMessagesAsRead();
+    }
+  }
+
+  /// 👥 Toggle para mostrar/ocultar lista de estudiantes
+  void _toggleStudents() {
+    setState(() {
+      _showStudents = !_showStudents;
+      if (_showStudents) {
+        _showChat = false; // Cerrar chat si se abre alumnos
+        _fetchStudentsStatus();
+        _studentsTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+          _fetchStudentsStatus();
+        });
+      } else {
+        _studentsTimer?.cancel();
+      }
+    });
+  }
+
+  Future<void> _fetchStudentsStatus() async {
+    if (widget.meetingId == null || !mounted || !_showStudents) return;
+    try {
+      final statuses = await ApiService.getStudentsStatus(widget.meetingId!);
+      if (mounted) {
+        setState(() {
+          _studentsList = statuses;
+        });
+      }
+    } catch (e) {
+      print('⚠️ Error al obtener estados de alumnos: $e');
     }
   }
 
@@ -325,6 +361,126 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
                     ),
                   ),
                 ),
+                
+                // 👥 Panel de Estudiantes desplegable a la derecha
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 300),
+                  right: _showStudents ? 0 : -350,
+                  top: 0,
+                  bottom: 0,
+                  width: 350,
+                  child: Material(
+                    color: Colors.grey[900],
+                    child: Stack(
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              color: Colors.black45,
+                              child: const Text(
+                                'Lista de Estudiantes',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: _studentsList.isEmpty
+                                ? const Center(
+                                    child: Text(
+                                      'Obteniendo lista...',
+                                      style: TextStyle(color: Colors.white54),
+                                    ),
+                                  )
+                                : ListView.builder(
+                                    itemCount: _studentsList.length,
+                                    itemBuilder: (context, index) {
+                                      final student = _studentsList[index];
+                                      final status = student['status']; // 'waiting', 'in_call', 'absent', 'left'
+                                      
+                                      Color dotColor;
+                                      String statusText;
+                                      switch (status) {
+                                        case 'in_call':
+                                          dotColor = Colors.green;
+                                          statusText = 'En clase';
+                                          break;
+                                        case 'waiting':
+                                          dotColor = Colors.orange;
+                                          statusText = 'Sala de espera';
+                                          break;
+                                        case 'left':
+                                          dotColor = Colors.red;
+                                          statusText = 'Salió';
+                                          break;
+                                        default:
+                                          dotColor = Colors.grey;
+                                          statusText = 'Ausente';
+                                      }
+
+                                      return ListTile(
+                                        leading: CircleAvatar(
+                                          backgroundColor: Colors.white10,
+                                          child: Icon(Icons.person, color: Colors.white54),
+                                        ),
+                                        title: Text(
+                                          student['name'] ?? 'Desconocido',
+                                          style: const TextStyle(color: Colors.white),
+                                        ),
+                                        subtitle: Row(
+                                          children: [
+                                            Container(
+                                              width: 10,
+                                              height: 10,
+                                              decoration: BoxDecoration(
+                                                color: dotColor,
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              statusText,
+                                              style: TextStyle(color: dotColor, fontSize: 12),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                            ),
+                          ],
+                        ),
+                        // Botón para cerrar (esquina superior derecha)
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.2),
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
+                            child: IconButton(
+                              icon: const Icon(Icons.close, color: Colors.black, size: 20),
+                              onPressed: _toggleStudents,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             );
           },
@@ -343,6 +499,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
               deviceManager: deviceManager,
               onExit: _exitMeeting, // Pasar el callback para salir
               onToggleChat: _toggleChat, // Pasar el callback para toggle del chat
+              onToggleStudents: _toggleStudents,
             );
           },
         ),
@@ -352,6 +509,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
 
   @override
   void dispose() {
+    _studentsTimer?.cancel();
     if (Platform.isWindows) {
       windowManager.removeListener(this);
     }

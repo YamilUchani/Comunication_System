@@ -15,6 +15,7 @@ import 'package:window_manager/window_manager.dart';
 import '../main.dart' as main_module;
 import '../services/meeting_cleanup_service.dart';
 import '../services/window_service.dart';
+import '../services/api_service.dart';
 
 class StudentVideoCallScreen extends StatefulWidget {
   final String channelName;
@@ -162,6 +163,11 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
       print('[INIT] 🔄 Inicializando Agora...');
       await controller.init();
       print('[INIT] ✅ Agora inicializado');
+
+      if (widget.meetingId != null) {
+        await ApiService.setEnteredCallStatus(widget.meetingId!);
+        print('[INIT] ✅ Estado actualizado a in_call en backend');
+      }
       
       localUid = await _getLocalUid();
       print('[INIT] ✅ Local UID: $localUid');
@@ -622,6 +628,9 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
       
       // Desconectar recursos pero NO cerrar la app entera aún
       await controller.leaveAndDispose();
+      if (widget.meetingId != null) {
+        await ApiService.setBackToWaitingRoomStatus(widget.meetingId!);
+      }
       await Future.delayed(const Duration(milliseconds: 500));
       
       if (main_module.isSecondaryWindow) {

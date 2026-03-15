@@ -220,13 +220,15 @@ router.post('/join', authenticateUser, async (req, res, next) => {
         const remainingTime = Math.floor((expiresAt - now) / 1000);
         const token = generateRtcToken(channelName, 0, 'publisher', remainingTime);
 
-        // Registrar la participación del usuario
+        // Registrar la participación del usuario en sala de espera
         await supabase
             .from('meeting_participants')
             .upsert({
                 meeting_id: meeting.id,
                 user_id: userId,
-                joined_at: new Date().toISOString()
+                joined_at: new Date().toISOString(),
+                left_at: null,
+                last_heartbeat: null // last_heartbeat = null significa 'waiting'
             }, {
                 onConflict: 'meeting_id,user_id'
             });
@@ -580,8 +582,58 @@ router.post('/:meetingId/heartbeat', authenticateUser, async (req, res, next) =>
 });
 
 /**
+ * POST /api/meetings/:meetingId/entered-call
+ * Marca que el usuario entró a la videollamada desde la sala de espera
+ */
+router.post('/:meetingId/entered-call', authenticateUser, async (req, res, next) => {
+    try {
+        const { meetingId } = req.params;
+        const userId = req.user.id;
+
+        const { error } = await supabase
+            .from('meeting_participants')
+            .update({
+                last_heartbeat: new Date().toISOString(),
+                left_at: null
+            })
+            .eq('meeting_id', meetingId)
+            .eq('user_id', userId);
+
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * POST /api/meetings/:meetingId/back-to-waiting-room
+ * Marca que el usuario regresó a la sala de espera
+ */
+router.post('/:meetingId/back-to-waiting-room', authenticateUser, async (req, res, next) => {
+    try {
+        const { meetingId } = req.params;
+        const userId = req.user.id;
+
+        const { error } = await supabase
+            .from('meeting_participants')
+            .update({
+                last_heartbeat: null,
+                left_at: null
+            })
+            .eq('meeting_id', meetingId)
+            .eq('user_id', userId);
+
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
  * POST /api/meetings/:meetingId/leave
- * Marca que el usuario abandonó la llamada correctamente
+ * Marca que el usuario abandonó la llamada completamente
  */
 router.post('/:meetingId/leave', authenticateUser, async (req, res, next) => {
     try {
@@ -786,6 +838,73 @@ router.delete('/schedules/:id', authenticateUser, async (req, res, next) => {
         if (error) throw error;
 
         res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * GET /api/meetings/:meetingId/students-status
+ * Obtiene la lista de todos los estudiantes del grupo asignado a la reunión
+ * incluyendo su estado actual (waiting, in_call, absent/left)
+ */
+router.get('/:meetingId/students-status', authenticateUser, async (req, res, next) => {
+    try {
+        const { meetingId } = req.params;
+
+        // 1. Obtener la reunión para saber el grupo
+        const { data: meeting, error: meetingError } = await supabase
+            .from('meetings')
+            .select('allowed_groups')
+            .eq('id', meetingId)
+            .single();
+
+        if (meetingError || !meeting || !meeting.allowed_groups || meeting.allowed_groups.length === 0) {
+            return res.status(404).json({ error: { message: 'Reunión o grupo no encontrado' } });
+        }
+
+        const groupName = meeting.allowed_groups[0];
+
+        // 2. Obtener TODOS los estudiantes de ese grupo
+        const { data: students, error: profilesError } = await supabase
+            .from('profiles')
+            .select('user_id, full_name, role')
+            .eq('group_name', groupName)
+            .eq('role', 'student');
+
+        if (profilesError) throw profilesError;
+
+        // 3. Obtener el estado actual en meeting_participants
+        const { data: participants, error: participantsError } = await supabase
+            .from('meeting_participants')
+            .select('user_id, joined_at, last_heartbeat, left_at')
+            .eq('meeting_id', meetingId);
+
+        if (participantsError) throw participantsError;
+
+        // 4. Mapear estado
+        const result = students.map(student => {
+            const participantObj = participants.find(p => p.user_id === student.user_id);
+            let state = 'absent';
+
+            if (participantObj) {
+                if (participantObj.left_at) {
+                    state = 'left';
+                } else if (!participantObj.last_heartbeat) {
+                    state = 'waiting';
+                } else {
+                    state = 'in_call';
+                }
+            }
+
+            return {
+                id: student.user_id,
+                name: student.full_name,
+                status: state
+            };
+        });
+
+        res.json({ students: result });
     } catch (error) {
         next(error);
     }
