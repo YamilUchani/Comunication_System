@@ -646,7 +646,7 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  '¿Salir de la videollamada?',
+                  '¿Salir completamente de la clase?',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 16,
