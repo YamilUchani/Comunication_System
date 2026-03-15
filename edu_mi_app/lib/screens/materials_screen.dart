@@ -133,11 +133,11 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
               ? const Center(child: Text('Aún no hay modelos disponibles.'))
               : GridView.builder(
                   padding: const EdgeInsets.all(16),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2, // Ajustar según diseño
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 250, // Hace que las tarjetas sean más pequeñas
                     crossAxisSpacing: 16,
                     mainAxisSpacing: 16,
-                    childAspectRatio: 0.8,
+                    childAspectRatio: 0.85,
                   ),
                   itemCount: _materials.length,
                   itemBuilder: (context, index) {

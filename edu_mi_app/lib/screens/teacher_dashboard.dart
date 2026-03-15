@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../services/window_service.dart';
 import '../services/meeting_cleanup_service.dart';
+import 'materials_screen.dart';
 
 class TeacherDashboard extends StatefulWidget {
   const TeacherDashboard({super.key});
@@ -159,6 +160,26 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  Card(
+                    elevation: 2,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.teal.withOpacity(0.1),
+                        child: const Icon(Icons.dashboard_customize, color: Colors.teal),
+                      ),
+                      title: const Text('Espacio de Material', style: TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: const Text('Mira los modelos armables y recursos'),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const MaterialsScreen(isAdmin: false)),
+                        );
+                      },
+                    ),
+                  ),
                   _buildSectionTitle('Acciones Rápidas'),
                   const SizedBox(height: 10),
                   Row(
