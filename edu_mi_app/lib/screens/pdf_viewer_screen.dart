@@ -2,10 +2,32 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
+import 'package:win32/win32.dart';
 
 // Mismo tamaño que la videollamada del estudiante
 const Size _kNormalSize = Size(850, 520);
 const Size _kBubbleSize = Size(280, 200);
+
+/// Obtiene el ancho real de la pantalla principal usando win32
+double _realScreenWidth() {
+  if (!Platform.isWindows) return 1920;
+  return GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CXSCREEN).toDouble();
+}
+
+double _realScreenHeight() {
+  if (!Platform.isWindows) return 1080;
+  return GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CYSCREEN).toDouble();
+}
+
+/// Posición inicial: ventana pegada al borde derecho, centrada verticalmente
+Offset initialWindowPosition() {
+  final sw = _realScreenWidth();
+  final sh = _realScreenHeight();
+  const margin = 20.0;
+  final x = sw - _kNormalSize.width - margin;
+  final y = (sh - _kNormalSize.height) / 2;
+  return Offset(x, y);
+}
 
 class PdfViewerScreen extends StatefulWidget {
   final String pdfUrl;
@@ -39,20 +61,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> with WindowListener {
     super.dispose();
   }
 
-  /// Calcula la posición para la burbuja: margen derecho de la pantalla
-  Future<Offset> _bubblePosition() async {
-    if (!Platform.isWindows) return const Offset(40, 40);
-
-    double screenW = 1920; // default common
-    try {
-      final currentPos = await windowManager.getPosition();
-      final currentSize = await windowManager.getSize();
-      // Estimar ancho de pantalla: el centro de la ventana está a la mitad de la pantalla
-      screenW = (currentPos.dx + currentSize.width / 2) * 2;
-    } catch (_) {}
-
+  /// Posición para la burbuja: esquina superior derecha con margen
+  Offset _bubblePosition() {
+    final sw = _realScreenWidth();
     const margin = 20.0;
-    final x = screenW - _kBubbleSize.width - margin;
+    final x = sw - _kBubbleSize.width - margin;
     return Offset(x, margin);
   }
 
@@ -62,25 +75,24 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> with WindowListener {
       await windowManager.ensureInitialized();
 
       if (!_isBubbleMode) {
-        // 💾 Guardar posición antes de encoger
+        // 💾 Guardar posición actual
         _preBubblePosition = await windowManager.getPosition();
 
-        // Calcular posición derecha
-        final bubblePos = await _bubblePosition();
-
+        // 📉 Encoger y mover a la derecha
         _isBubbleMode = true;
+        final bubblePos = _bubblePosition();
         await windowManager.setAlwaysOnTop(true);
         await windowManager.setSize(_kBubbleSize);
         await windowManager.setPosition(bubblePos);
       } else {
-        // 🔙 Restaurar tamaño original (= videollamada estudiante) y posición
+        // 🔙 Restaurar tamaño y posición
         _isBubbleMode = false;
         await windowManager.setAlwaysOnTop(false);
         await windowManager.setSize(_kNormalSize);
         if (_preBubblePosition != null) {
           await windowManager.setPosition(_preBubblePosition!);
         } else {
-          await windowManager.center();
+          await windowManager.setPosition(initialWindowPosition());
         }
       }
       setState(() {});
@@ -102,7 +114,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> with WindowListener {
           },
           child: Stack(
             children: [
-              // Vista del PDF pequeñita (no interactiva)
+              // Vista del PDF en miniatura (no interactiva)
               Positioned.fill(
                 child: AbsorbPointer(
                   child: SfPdfViewer.network(
@@ -113,32 +125,36 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> with WindowListener {
                   ),
                 ),
               ),
-              // Título en la parte inferior
+              // Barra inferior con título y botón de restaurar
               Positioned(
                 bottom: 0,
                 left: 0,
                 right: 0,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                   color: Colors.black87,
                   child: Row(
                     children: [
                       const Icon(Icons.picture_as_pdf, color: Colors.redAccent, size: 14),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 5),
                       Expanded(
                         child: Text(
                           widget.title,
-                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      // Botón de restaurar
-                      GestureDetector(
+                      // Botón de restaurar ventana
+                      InkWell(
                         onTap: _toggleBubbleMode,
                         child: Container(
                           padding: const EdgeInsets.all(3),
                           decoration: BoxDecoration(
-                            color: Colors.teal.withOpacity(0.8),
+                            color: Colors.teal,
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: const Icon(Icons.open_in_full, color: Colors.white, size: 14),
@@ -154,7 +170,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> with WindowListener {
       );
     }
 
-    // --- MODO NORMAL (850×520, igual que la videollamada del estudiante) ---
+    // ─── MODO NORMAL (850×520, misma posición/tamaño que videollamada del estudiante) ───
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
@@ -164,7 +180,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> with WindowListener {
           IconButton(
             icon: const Icon(Icons.picture_in_picture_alt),
             onPressed: _toggleBubbleMode,
-            tooltip: 'Modo Burbuja — minimiza a la derecha',
+            tooltip: 'Modo Burbuja — minimiza a la esquina derecha',
           ),
         ],
       ),
