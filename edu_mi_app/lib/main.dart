@@ -84,8 +84,8 @@ Future<void> main(List<String> args) async {
       if (pdfUrl != null) {
         if (Platform.isWindows) {
           await windowManager.ensureInitialized();
-          // ← Mismo tamaño que videollamada del estudiante, pegado al borde derecho
-          await windowManager.setSize(const Size(850, 520));
+          // ← Formato vertical (portrait), pegado al borde derecho
+          await windowManager.setSize(const Size(520, 850));
           await windowManager.setPosition(initialWindowPosition());
         }
 

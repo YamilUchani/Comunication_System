@@ -4,9 +4,9 @@ import 'package:window_manager/window_manager.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:win32/win32.dart';
 
-// Mismo tamaño que la videollamada del estudiante
-const Size _kNormalSize = Size(850, 520);
-const Size _kBubbleSize = Size(280, 200);
+// Formato VERTICAL (portrait) — PDF se lee mejor en altura
+const Size _kNormalSize = Size(520, 850);
+const Size _kBubbleSize = Size(200, 280);
 
 /// Obtiene el ancho real de la pantalla principal usando win32
 double _realScreenWidth() {
