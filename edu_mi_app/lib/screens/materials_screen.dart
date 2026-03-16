@@ -322,7 +322,7 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           color: Colors.teal.shade50,
           child: Text(
-            '👥 ${_students.length} estudiante(s) en tu grupo  •  Toca un modelo para gestionar su estado',
+            '👥 ${_students.length} estudiante(s) en tu grupo  •  Toca la tarjeta para ver el modelo  •  "Gestionar" para asignar estados',
             style: const TextStyle(fontSize: 12, color: Colors.teal, fontWeight: FontWeight.w600),
           ),
         ),
@@ -347,6 +347,7 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
                 elevation: 2,
                 child: ListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  onTap: () => _showMaterialDetails(item), // ← el maestro también puede ver el modelo
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(6),
                     child: item['image_url'] != null && item['image_url'].toString().isNotEmpty
@@ -370,16 +371,26 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
                       ],
                     ),
                   ),
-                  trailing: ElevatedButton.icon(
-                    onPressed: () => _showStudentProgressDialog(item),
-                    icon: const Icon(Icons.tune, size: 16),
-                    label: const Text('Gestionar'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      textStyle: const TextStyle(fontSize: 12),
-                    ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.open_in_new, color: Colors.blueGrey),
+                        tooltip: 'Ver modelo',
+                        onPressed: () => _showMaterialDetails(item),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () => _showStudentProgressDialog(item),
+                        icon: const Icon(Icons.tune, size: 16),
+                        label: const Text('Gestionar'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               );
