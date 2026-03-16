@@ -175,7 +175,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                       onTap: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const MaterialsScreen(isAdmin: false)),
+                          MaterialPageRoute(builder: (_) => const MaterialsScreen(role: 'teacher')),
                         );
                       },
                     ),

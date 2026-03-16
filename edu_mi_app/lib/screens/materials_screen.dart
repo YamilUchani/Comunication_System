@@ -4,10 +4,11 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+// Roles posibles: 'admin', 'teacher', 'student'
 class MaterialsScreen extends StatefulWidget {
-  final bool isAdmin;
+  final String role; // 'admin', 'teacher', 'student'
 
-  const MaterialsScreen({super.key, required this.isAdmin});
+  const MaterialsScreen({super.key, required this.role});
 
   @override
   State<MaterialsScreen> createState() => _MaterialsScreenState();
@@ -18,6 +19,10 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
   List<dynamic> _materials = [];
   bool _isLoading = true;
 
+  bool get _isAdmin => widget.role == 'admin';
+  bool get _isTeacher => widget.role == 'teacher';
+  bool get _isStudent => widget.role == 'student';
+
   @override
   void initState() {
     super.initState();
@@ -26,10 +31,9 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
 
   Future<void> _fetchMaterials() async {
     try {
-      final data = await _supabase
-          .from('materials')
-          .select()
-          .order('created_at', ascending: false);
+      var query = _supabase.from('materials').select().order('created_at', ascending: false);
+
+      final data = await query;
 
       if (mounted) {
         setState(() {
@@ -47,15 +51,45 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
     }
   }
 
+  // Cicla el estado: disabled -> active -> achieved -> disabled
+  Future<void> _cycleStatus(Map<String, dynamic> material) async {
+    final current = material['status'] ?? 'disabled';
+    String next;
+    switch (current) {
+      case 'disabled':
+        next = 'active';
+        break;
+      case 'active':
+        next = 'achieved';
+        break;
+      case 'achieved':
+      default:
+        next = 'disabled';
+    }
+
+    try {
+      await _supabase
+          .from('materials')
+          .update({'status': next})
+          .eq('id', material['id']);
+
+      await _fetchMaterials();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al cambiar estado: $e')),
+        );
+      }
+    }
+  }
+
   void _showCreateDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => const CreateMaterialDialog(),
     ).then((value) {
-      if (value == true) {
-        _fetchMaterials();
-      }
+      if (value == true) _fetchMaterials();
     });
   }
 
@@ -71,10 +105,13 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
             children: [
               if (material['image_url'] != null && material['image_url'].toString().isNotEmpty)
                 Center(
-                  child: Image.network(
-                    material['image_url'],
-                    height: 200,
-                    fit: BoxFit.cover,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      material['image_url'],
+                      height: 200,
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
               const SizedBox(height: 16),
@@ -122,6 +159,14 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Filtrar según rol
+    final visibleMaterials = _isStudent
+        ? _materials.where((m) {
+            final s = m['status'] ?? 'disabled';
+            return s == 'active' || s == 'achieved';
+          }).toList()
+        : _materials;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Espacio de Material / Modelos'),
@@ -129,61 +174,128 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _materials.isEmpty
-              ? const Center(child: Text('Aún no hay modelos disponibles.'))
-              : GridView.builder(
-                  padding: const EdgeInsets.all(16),
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 250, // Hace que las tarjetas sean más pequeñas
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    childAspectRatio: 0.85,
+          : Column(
+              children: [
+                // 🎓 Sección de gestión solo para maestro
+                if (_isTeacher) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    color: Colors.teal.shade50,
+                    child: const Text(
+                      '🎛️ Gestión de Modelos — Toca el estado para cambiarlo',
+                      style: TextStyle(fontSize: 13, color: Colors.teal, fontWeight: FontWeight.w600),
+                    ),
                   ),
-                  itemCount: _materials.length,
-                  itemBuilder: (context, index) {
-                    final item = _materials[index];
-                    return GestureDetector(
-                      onTap: () => _showMaterialDetails(item),
-                      child: Card(
-                        clipBehavior: Clip.antiAlias,
-                        elevation: 4,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              child: item['image_url'] != null && item['image_url'].toString().isNotEmpty
-                                  ? Image.network(
-                                      item['image_url'],
-                                      fit: BoxFit.cover,
-                                    )
-                                  : Container(
-                                      color: Colors.grey[300],
-                                      child: const Icon(Icons.image, size: 50, color: Colors.grey),
-                                    ),
+                  Expanded(child: _buildTeacherManagementList()),
+                  const Divider(height: 1, thickness: 1.5),
+                  Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Row(
+                      children: const [
+                        _StatusBadge(status: 'disabled'),
+                        SizedBox(width: 8),
+                        Text('Oculto al estudiante', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        SizedBox(width: 20),
+                        _StatusBadge(status: 'active'),
+                        SizedBox(width: 8),
+                        Text('Visible al estudiante', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        SizedBox(width: 20),
+                        _StatusBadge(status: 'achieved'),
+                        SizedBox(width: 8),
+                        Text('Logrado (borde naranja)', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      ],
+                    ),
+                  ),
+                ]
+                // Vista normal (admin o student) – Grid de tarjetas
+                else if (visibleMaterials.isEmpty)
+                  const Expanded(
+                    child: Center(child: Text('No hay modelos disponibles para ti.')),
+                  )
+                else
+                  Expanded(
+                    child: GridView.builder(
+                      padding: const EdgeInsets.all(16),
+                      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 250,
+                        crossAxisSpacing: 16,
+                        mainAxisSpacing: 16,
+                        childAspectRatio: 0.85,
+                      ),
+                      itemCount: visibleMaterials.length,
+                      itemBuilder: (context, index) {
+                        final item = visibleMaterials[index];
+                        final status = item['status'] ?? 'disabled';
+                        final isAchieved = status == 'achieved';
+
+                        return GestureDetector(
+                          onTap: () => _showMaterialDetails(item),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: isAchieved
+                                  ? Border.all(color: Colors.orange, width: 3)
+                                  : null,
+                              boxShadow: isAchieved
+                                  ? [BoxShadow(color: Colors.orange.withOpacity(0.35), blurRadius: 10, spreadRadius: 2)]
+                                  : null,
                             ),
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              color: Colors.white,
-                              child: Text(
-                                item['title'] ?? 'Sin Título',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
+                            child: Card(
+                              margin: EdgeInsets.zero,
+                              clipBehavior: Clip.antiAlias,
+                              elevation: 4,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Expanded(
+                                    child: item['image_url'] != null && item['image_url'].toString().isNotEmpty
+                                        ? Image.network(item['image_url'], fit: BoxFit.cover)
+                                        : Container(
+                                            color: Colors.grey[300],
+                                            child: const Icon(Icons.image, size: 50, color: Colors.grey),
+                                          ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    color: Colors.white,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          item['title'] ?? 'Sin Título',
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        if (isAchieved)
+                                          const Padding(
+                                            padding: EdgeInsets.only(top: 4),
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.emoji_events, color: Colors.orange, size: 14),
+                                                SizedBox(width: 4),
+                                                Text('Logrado', style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.bold)),
+                                              ],
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-      floatingActionButton: widget.isAdmin
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+      floatingActionButton: _isAdmin
           ? FloatingActionButton.extended(
               onPressed: _showCreateDialog,
               icon: const Icon(Icons.add),
@@ -193,7 +305,103 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
           : null,
     );
   }
+
+  Widget _buildTeacherManagementList() {
+    if (_materials.isEmpty) {
+      return const Center(child: Text('No hay modelos creados aún.'));
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(12),
+      itemCount: _materials.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final item = _materials[index];
+        final status = item['status'] ?? 'disabled';
+
+        return Card(
+          elevation: 2,
+          child: ListTile(
+            leading: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: item['image_url'] != null && item['image_url'].toString().isNotEmpty
+                  ? Image.network(
+                      item['image_url'],
+                      width: 50,
+                      height: 50,
+                      fit: BoxFit.cover,
+                    )
+                  : Container(
+                      width: 50,
+                      height: 50,
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.image, color: Colors.grey),
+                    ),
+            ),
+            title: Text(item['title'] ?? 'Sin título', style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text(item['description'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: GestureDetector(
+              onTap: () => _cycleStatus(item),
+              child: _StatusBadge(status: status),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
+
+class _StatusBadge extends StatelessWidget {
+  final String status;
+  const _StatusBadge({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    Color bg;
+    Color fg;
+    IconData icon;
+    String label;
+
+    switch (status) {
+      case 'active':
+        bg = Colors.green;
+        fg = Colors.white;
+        icon = Icons.visibility;
+        label = 'Activado';
+        break;
+      case 'achieved':
+        bg = Colors.orange;
+        fg = Colors.white;
+        icon = Icons.emoji_events;
+        label = 'Logrado';
+        break;
+      case 'disabled':
+      default:
+        bg = Colors.grey.shade400;
+        fg = Colors.white;
+        icon = Icons.visibility_off;
+        label = 'Desactivado';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: fg, size: 14),
+          const SizedBox(width: 5),
+          Text(label, style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+}
+
+// =================== DIALOG DE CREACIÓN ===================
 
 class CreateMaterialDialog extends StatefulWidget {
   const CreateMaterialDialog({super.key});
@@ -205,20 +413,16 @@ class CreateMaterialDialog extends StatefulWidget {
 class _CreateMaterialDialogState extends State<CreateMaterialDialog> {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
-  
+
   File? _imageFile;
   File? _pdfFile;
   bool _isUploading = false;
   final _supabase = Supabase.instance.client;
 
   Future<void> _pickImage() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-    );
+    final result = await FilePicker.platform.pickFiles(type: FileType.image);
     if (result != null && result.files.single.path != null) {
-      setState(() {
-        _imageFile = File(result.files.single.path!);
-      });
+      setState(() => _imageFile = File(result.files.single.path!));
     }
   }
 
@@ -228,9 +432,7 @@ class _CreateMaterialDialogState extends State<CreateMaterialDialog> {
       allowedExtensions: ['pdf'],
     );
     if (result != null && result.files.single.path != null) {
-      setState(() {
-        _pdfFile = File(result.files.single.path!);
-      });
+      setState(() => _pdfFile = File(result.files.single.path!));
     }
   }
 
@@ -242,66 +444,47 @@ class _CreateMaterialDialogState extends State<CreateMaterialDialog> {
       return;
     }
 
-    setState(() {
-      _isUploading = true;
-    });
+    setState(() => _isUploading = true);
 
     try {
       String? imageUrl;
       String? pdfUrl;
 
-      // Subir Imagen si hay
       if (_imageFile != null) {
-        final imageExt = _imageFile!.path.split('.').last;
-        final imagePath = 'images/${DateTime.now().millisecondsSinceEpoch}.$imageExt';
-        
-        await _supabase.storage.from('materials').upload(
-          imagePath,
-          _imageFile!,
-        );
-        imageUrl = _supabase.storage.from('materials').getPublicUrl(imagePath);
+        final ext = _imageFile!.path.split('.').last;
+        final path = 'images/${DateTime.now().millisecondsSinceEpoch}.$ext';
+        await _supabase.storage.from('materials').upload(path, _imageFile!);
+        imageUrl = _supabase.storage.from('materials').getPublicUrl(path);
       }
 
-      // Subir PDF si hay
       if (_pdfFile != null) {
-        final pdfExt = _pdfFile!.path.split('.').last;
-        final pdfPath = 'pdfs/${DateTime.now().millisecondsSinceEpoch}.$pdfExt';
-        
-        await _supabase.storage.from('materials').upload(
-          pdfPath,
-          _pdfFile!,
-        );
-        pdfUrl = _supabase.storage.from('materials').getPublicUrl(pdfPath);
+        final ext = _pdfFile!.path.split('.').last;
+        final path = 'pdfs/${DateTime.now().millisecondsSinceEpoch}.$ext';
+        await _supabase.storage.from('materials').upload(path, _pdfFile!);
+        pdfUrl = _supabase.storage.from('materials').getPublicUrl(path);
       }
 
-      // Insertar a base de datos
       await _supabase.from('materials').insert({
         'title': _titleController.text.trim(),
         'description': _descriptionController.text.trim(),
         'image_url': imageUrl,
         'pdf_url': pdfUrl,
+        'status': 'disabled', // Por defecto: desactivado al crear
         'created_by': _supabase.auth.currentUser!.id,
       });
 
       if (mounted) {
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Modelo creado exitosamente')),
+          const SnackBar(content: Text('Modelo creado. Está desactivado por defecto.')),
         );
       }
     } catch (e) {
-      print('❌ Error guardando modelo: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isUploading = false;
-        });
-      }
+      if (mounted) setState(() => _isUploading = false);
     }
   }
 
@@ -338,7 +521,7 @@ class _CreateMaterialDialogState extends State<CreateMaterialDialog> {
                 if (_imageFile != null) ...[
                   const SizedBox(width: 8),
                   const Icon(Icons.check_circle, color: Colors.green),
-                ]
+                ],
               ],
             ),
             const SizedBox(height: 10),
@@ -355,7 +538,7 @@ class _CreateMaterialDialogState extends State<CreateMaterialDialog> {
                 if (_pdfFile != null) ...[
                   const SizedBox(width: 8),
                   const Icon(Icons.check_circle, color: Colors.green),
-                ]
+                ],
               ],
             ),
           ],
@@ -370,7 +553,11 @@ class _CreateMaterialDialogState extends State<CreateMaterialDialog> {
           onPressed: _isUploading ? null : _saveModel,
           style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
           child: _isUploading
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                )
               : const Text('Crear Modelo'),
         ),
       ],

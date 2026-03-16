@@ -100,7 +100,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     Colors.teal,
                     () => Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const MaterialsScreen(isAdmin: true)),
+                      MaterialPageRoute(builder: (_) => const MaterialsScreen(role: 'admin')),
                     ),
                   ),
                   const Divider(height: 30),
