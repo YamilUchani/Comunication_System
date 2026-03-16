@@ -24,10 +24,15 @@ class SimulatorService {
   }
 
   /// Lanza un .exe dado su ruta completa
-  static Future<void> lanzar(String exePath) async {
+    static Future<void> lanzar(String exePath) async {
     try {
       print('🚀 Lanzando simulador: $exePath');
-      await Process.start(exePath, [], workingDirectory: File(exePath).parent.path);
+      await Process.start(
+        exePath,
+        [],
+        workingDirectory: File(exePath).parent.path,
+        mode: ProcessStartMode.detached,
+      );
     } catch (e) {
       print('❌ Error al lanzar simulador: $e');
       rethrow;
