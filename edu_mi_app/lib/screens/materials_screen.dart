@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../services/window_service.dart';
 
 class MaterialsScreen extends StatefulWidget {
   final String role; // 'admin', 'teacher', 'student'
@@ -241,7 +242,7 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
               if (material['pdf_url'] != null && material['pdf_url'].toString().isNotEmpty)
                 Center(
                   child: ElevatedButton.icon(
-                    onPressed: () => _openPdf(material['pdf_url']),
+                    onPressed: () => _openPdf(material['pdf_url'], material['title'] ?? 'Visor de PDF'),
                     icon: const Icon(Icons.picture_as_pdf),
                     label: const Text('Visor de PDF'),
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
@@ -257,12 +258,23 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
     );
   }
 
-  Future<void> _openPdf(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+  Future<void> _openPdf(String url, String title) async {
+    if (Platform.isWindows) {
+      try {
+        await WindowService().openPdfViewerWindow(
+          pdfUrl: url,
+          title: title,
+        );
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al abrir PDF: $e')));
+      }
     } else {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo abrir el PDF')));
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo abrir el PDF')));
+      }
     }
   }
 

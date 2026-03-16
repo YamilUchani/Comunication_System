@@ -33,7 +33,7 @@ dependencies:
   supabase_flutter: ^2.9.1  # Versión estable más reciente al 2025
   flutter_dotenv: ^5.2.1   # Para manejar .env
   flutter_riverpod: ^2.5.1 # Añade esta línea
-  http: ^1.2.2  # Versión más reciente al 2025
+  http: ^1.6.0  # Versión más reciente al 2025
   uni_links: ^0.5.1
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -50,6 +50,9 @@ dependencies:
   window_manager: ^0.3.7
   file_picker: ^10.3.10
   url_launcher: ^6.3.2
+  flutter_pdfview: ^1.4.4
+  path_provider: ^2.1.5
+  syncfusion_flutter_pdfviewer: ^23.1.39
 
 dev_dependencies:
   flutter_test:

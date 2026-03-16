@@ -137,4 +137,48 @@ class WindowService {
     }
     _spawnedProcesses.clear();
   }
+
+  /// Abre una nueva ventana para visor de PDF.
+  /// 
+  /// [pdfUrl]: URL del PDF a mostrar.
+  /// [title]: Título del modelo/PDF.
+  Future<void> openPdfViewerWindow({
+    required String pdfUrl,
+    required String title,
+  }) async {
+    final String executablePath = Platform.resolvedExecutable;
+    
+    // Argumentos para la nueva instancia
+    final List<String> args = [
+      '--secondary',
+      '--mode=pdf-viewer',
+      '--pdfUrl=$pdfUrl',
+      '--pdfTitle=$title',
+    ];
+
+    print('🚀 Iniciando ventana secundaria de visor PDF...');
+    print('   CMD: $executablePath ${args.join(' ')}');
+
+    try {
+      final process = await Process.start(executablePath, args);
+      
+      // ✅ PIPEO DE LOGS
+      process.stdout.transform(utf8.decoder).listen((data) {
+        stdout.write('[CHILD-OUT] $data');
+      });
+      process.stderr.transform(utf8.decoder).listen((data) {
+        stderr.write('[CHILD-ERR] $data');
+      });
+
+      _spawnedProcesses.add(process);
+
+      // Limpiar de la lista si el proceso termina solo
+      process.exitCode.then((_) => _spawnedProcesses.remove(process));
+      
+      print('   ✅ Ventana iniciada con PID: ${process.pid}');
+    } catch (e) {
+      print('   ❌ Error al iniciar ventana de visor PDF: $e');
+      rethrow;
+    }
+  }
 }

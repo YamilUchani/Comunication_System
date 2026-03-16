@@ -20,6 +20,7 @@ import 'services/window_service.dart';
 import 'services/deep_link_service.dart';
 import 'video_call/video_call_screen.dart';
 import 'video_call/student_video_call_screen.dart';
+import 'screens/pdf_viewer_screen.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 bool _isAuthInProgress = false;
@@ -76,7 +77,30 @@ Future<void> main(List<String> args) async {
     print('   - Modo: $mode');
     print('   - Agora App ID cargado: ${appId.isNotEmpty}');
 
-    if (channel != null && token != null) {
+    if (mode == 'pdf-viewer') {
+      final pdfUrl = _getArgValue(args, 'pdfUrl');
+      final pdfTitle = _getArgValue(args, 'pdfTitle') ?? 'Visor PDF';
+
+      if (pdfUrl != null) {
+        if (Platform.isWindows) {
+          await windowManager.ensureInitialized();
+          await windowManager.setSize(const Size(800, 600));
+          await windowManager.center();
+        }
+
+        runApp(
+          MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: ThemeData(primarySwatch: Colors.teal),
+            home: PdfViewerScreen(pdfUrl: pdfUrl, title: pdfTitle),
+          ),
+        );
+        return;
+      } else {
+        print('❌ [CHILD PROCESS] Faltan argumentos para PDF Viewer (pdfUrl)');
+        exit(1);
+      }
+    } else if (channel != null && token != null) {
       try {
         if (mode == 'waiting-room') {
           // --- MODO SALA DE ESPERA ---
