@@ -6,6 +6,7 @@ import '../services/api_service.dart';
 import '../services/window_service.dart';
 import '../services/meeting_cleanup_service.dart';
 import 'materials_screen.dart';
+import '../widgets/simulador_button.dart';
 
 class TeacherDashboard extends StatefulWidget {
   const TeacherDashboard({super.key});
@@ -180,6 +181,8 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                       },
                     ),
                   ),
+                  const SimuladorButton(), // ← Lanzador de simulador
+                  const SizedBox(height: 20),
                   _buildSectionTitle('Acciones Rápidas'),
                   const SizedBox(height: 10),
                   Row(

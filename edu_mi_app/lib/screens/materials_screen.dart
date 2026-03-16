@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/window_service.dart';
+import '../widgets/simulador_button.dart';
 
 class MaterialsScreen extends StatefulWidget {
   final String role; // 'admin', 'teacher', 'student'
@@ -248,6 +249,9 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
                   ),
                 ),
+              const SizedBox(height: 10),
+              // Botón de simulador (below PDF button)
+              const Center(child: SimuladorButton(compact: true)),
             ],
           ),
         ),
