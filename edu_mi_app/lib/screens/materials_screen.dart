@@ -52,36 +52,100 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
   }
 
   // Cicla el estado: disabled -> active -> achieved -> disabled
-  Future<void> _cycleStatus(Map<String, dynamic> material) async {
+  void _showStatusMenu(Map<String, dynamic> material) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.tune, color: Colors.teal),
+            const SizedBox(width: 10),
+            Expanded(child: Text(material['title'] ?? 'Modelo', overflow: TextOverflow.ellipsis)),
+          ],
+        ),
+        content: const Text('Selecciona el estado de visibilidad para los estudiantes:'),
+        actionsAlignment: MainAxisAlignment.start,
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildStatusOption(context, material, 'disabled', Colors.grey.shade500,
+                  Icons.visibility_off, 'Desactivado', 'El estudiante NO puede verlo'),
+              const SizedBox(height: 10),
+              _buildStatusOption(context, material, 'active', Colors.green,
+                  Icons.visibility, 'Activado', 'El estudiante puede verlo normalmente'),
+              const SizedBox(height: 10),
+              _buildStatusOption(context, material, 'achieved', Colors.orange,
+                  Icons.emoji_events, 'Logrado', 'El estudiante lo ve con borde naranja dorado'),
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancelar'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusOption(
+    BuildContext dialogCtx,
+    Map<String, dynamic> material,
+    String statusValue,
+    Color color,
+    IconData icon,
+    String label,
+    String description,
+  ) {
     final current = material['status'] ?? 'disabled';
-    String next;
-    switch (current) {
-      case 'disabled':
-        next = 'active';
-        break;
-      case 'active':
-        next = 'achieved';
-        break;
-      case 'achieved':
-      default:
-        next = 'disabled';
-    }
+    final isSelected = current == statusValue;
 
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () async {
+        Navigator.pop(dialogCtx);
+        if (!isSelected) await _setStatus(material, statusValue);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withOpacity(0.12) : Colors.transparent,
+          border: Border.all(color: isSelected ? color : Colors.grey.shade300, width: isSelected ? 2 : 1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 15)),
+                  Text(description, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                ],
+              ),
+            ),
+            if (isSelected) Icon(Icons.check_circle, color: color, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setStatus(Map<String, dynamic> material, String newStatus) async {
     try {
-      await _supabase
-          .from('materials')
-          .update({'status': next})
-          .eq('id', material['id']);
-
+      await _supabase.from('materials').update({'status': newStatus}).eq('id', material['id']);
       await _fetchMaterials();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al cambiar estado: $e')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }
+
 
   void _showCreateDialog() {
     showDialog(
@@ -188,23 +252,26 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
                     ),
                   ),
                   Expanded(child: _buildTeacherManagementList()),
-                  const Divider(height: 1, thickness: 1.5),
+                   const Divider(height: 1, thickness: 1.5),
                   Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Row(
-                      children: const [
-                        _StatusBadge(status: 'disabled'),
-                        SizedBox(width: 8),
-                        Text('Oculto al estudiante', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                        SizedBox(width: 20),
-                        _StatusBadge(status: 'active'),
-                        SizedBox(width: 8),
-                        Text('Visible al estudiante', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                        SizedBox(width: 20),
-                        _StatusBadge(status: 'achieved'),
-                        SizedBox(width: 8),
-                        Text('Logrado (borde naranja)', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      ],
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: const [
+                          _StatusBadge(status: 'disabled'),
+                          SizedBox(width: 6),
+                          Text('Oculto', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                          SizedBox(width: 16),
+                          _StatusBadge(status: 'active'),
+                          SizedBox(width: 6),
+                          Text('Visible', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                          SizedBox(width: 16),
+                          _StatusBadge(status: 'achieved'),
+                          SizedBox(width: 6),
+                          Text('Logrado (naranja)', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                        ],
+                      ),
                     ),
                   ),
                 ]
@@ -340,9 +407,17 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
             ),
             title: Text(item['title'] ?? 'Sin título', style: const TextStyle(fontWeight: FontWeight.bold)),
             subtitle: Text(item['description'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
-            trailing: GestureDetector(
-              onTap: () => _cycleStatus(item),
-              child: _StatusBadge(status: status),
+            trailing: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => _showStatusMenu(item),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _StatusBadge(status: status),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.arrow_drop_down, size: 18, color: Colors.grey),
+                ],
+              ),
             ),
           ),
         );
