@@ -141,6 +141,7 @@ class ApiService {
     String description, {
     List<String>? allowedGroups,
     List<String>? allowedUsers,
+    String meetingType = 'master',
   }) async {
     // El backend genera channelName automáticamente o usa el título sanitizado
     final channelName = title
@@ -156,6 +157,7 @@ class ApiService {
         'description': description,
         'allowed_groups': allowedGroups,
         'allowed_users': allowedUsers,
+        'meeting_type': meetingType,
       }),
     );
 

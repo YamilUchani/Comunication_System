@@ -11,7 +11,7 @@ const logger = require('../utils/logger');
  */
 router.post('/create', authenticateUser, canCreateMeeting, async (req, res, next) => {
     try {
-        const { channelName, title, description, allowed_groups, allowed_users } = req.body;
+        const { channelName, title, description, allowed_groups, allowed_users, meeting_type } = req.body;
         const userId = req.user.id;
 
         logger.info(`📝 Creando reunión - Usuario: ${userId}, Channel: ${channelName}`);
@@ -83,6 +83,7 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res, next
                 is_active: true,
                 allowed_groups: allowed_groups || [],
                 allowed_users: allowed_users || [],
+                meeting_type: meeting_type || 'master',
                 expires_at: new Date(Date.now() + expirationTime * 1000).toISOString()
             })
             .select()
@@ -106,6 +107,7 @@ router.post('/create', authenticateUser, canCreateMeeting, async (req, res, next
                 channelName: meeting.channel_name,
                 title: meeting.title,
                 description: meeting.description,
+                meetingType: meeting.meeting_type || 'master',
                 token: token,
                 expiresAt: meeting.expires_at,
                 joinUrl: `stemforall://meeting?channel=${encodeURIComponent(channelName)}&token=${encodeURIComponent(token)}`
@@ -163,9 +165,24 @@ router.post('/join', authenticateUser, async (req, res, next) => {
             }
 
             if (schedule && schedule.is_active) {
-                // Crear la reunión automáticamente
+                // Parsear la fecha del channelName para saber el día de clase
+                const schedDateMatch = channelName.match(/-(\d{4}-\d{2}-\d{2})$/);
+                const scheduleDateStr = schedDateMatch ? schedDateMatch[1] : new Date().toISOString().split('T')[0];
+                
+                // Determinar el expires_at correcto basado en el end_time de la clase programada
                 const now = new Date();
-                const expiresAt = new Date(now.getTime() + 4 * 60 * 60 * 1000); // 4 horas por defecto
+                let expirationDateStr = scheduleDateStr;
+                
+                // Si la clase cruza la medianoche y estamos en el día de inicio, expires_at es mañana
+                if (schedule.start_time > schedule.end_time) {
+                    const currentUtcDate = now.toISOString().split('T')[0];
+                    if (scheduleDateStr === currentUtcDate) {
+                        const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+                        expirationDateStr = tomorrow.toISOString().split('T')[0];
+                    }
+                }
+                
+                const expiresAt = new Date(`${expirationDateStr}T${schedule.end_time}Z`);
 
                 const { data: newMeeting, error: createError } = await supabase
                     .from('meetings')
@@ -176,7 +193,9 @@ router.post('/join', authenticateUser, async (req, res, next) => {
                         creator_id: schedule.teacher_id,
                         expires_at: expiresAt.toISOString(),
                         is_active: true,
-                        allowed_groups: [schedule.group_name]
+                        allowed_groups: [schedule.group_name],
+                        meeting_type: 'master', // Scheduled classes default to master
+                        is_virtual: true
                     })
                     .select()
                     .single();
@@ -240,6 +259,7 @@ router.post('/join', authenticateUser, async (req, res, next) => {
                 channelName: meeting.channel_name,
                 title: meeting.title,
                 description: meeting.description,
+                meetingType: meeting.meeting_type || 'master',
                 token: token,
                 expiresAt: meeting.expires_at
             }
@@ -328,9 +348,17 @@ router.get('/active', authenticateUser, async (req, res, next) => {
                     const virtualChannelName = `sched-${schedule.id}-${scheduleDateStr}`;
                     activeVirtualChannels.push(virtualChannelName);
                     
+                    // Calcular la fecha correcta para expiresAt
+                    let expirationDateStr = isNextDay ? todayStr : scheduleDateStr;
+                    if (!isNextDay && start > end) {
+                        // El evento cruza la medianoche UTC y estamos en el primer día
+                        const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+                        expirationDateStr = tomorrow.toISOString().split('T')[0];
+                    }
+                    
                     virtualToScheduleMap[virtualChannelName] = {
                         schedule,
-                        expiresAt: (isNextDay ? todayStr : scheduleDateStr) + 'T' + schedule.end_time + 'Z'
+                        expiresAt: expirationDateStr + 'T' + schedule.end_time + 'Z'
                     };
                 }
             }
@@ -356,7 +384,8 @@ router.get('/active', authenticateUser, async (req, res, next) => {
                             creator_id: data.schedule.teacher_id,
                             is_active: true,
                             expires_at: data.expiresAt,
-                            allowed_groups: [data.schedule.group_name]
+                            allowed_groups: [data.schedule.group_name],
+                            meeting_type: 'master'
                         };
                     });
 
@@ -370,7 +399,7 @@ router.get('/active', authenticateUser, async (req, res, next) => {
         // --- QUERY NORMAL A LA BASE DE DATOS (Las recién insertadas ya estarán aquí) ---
         let query = supabase
             .from('meetings')
-            .select('id, channel_name, title, description, creator_id, created_at, expires_at, allowed_groups, allowed_users')
+            .select('id, channel_name, title, description, creator_id, created_at, expires_at, allowed_groups, allowed_users, meeting_type')
             .eq('is_active', true)
             .gt('expires_at', new Date().toISOString())
             .order('created_at', { ascending: false });
@@ -458,6 +487,7 @@ router.get('/active', authenticateUser, async (req, res, next) => {
                 createdAt: meeting.created_at,
                 expiresAt: meeting.expires_at,
                 allowedUsers: meeting.allowed_users || [],
+                meetingType: meeting.meeting_type || 'master',
                 isVirtual: meeting.is_virtual || false
             }))
         });

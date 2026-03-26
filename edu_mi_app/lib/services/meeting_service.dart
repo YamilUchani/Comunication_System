@@ -21,6 +21,7 @@ class MeetingService {
     required String channelName,
     required String title,
     String? description,
+    String meetingType = 'master',
   }) async {
     final token = await _getAuthToken();
     if (token == null) {
@@ -37,6 +38,7 @@ class MeetingService {
         'channelName': channelName,
         'title': title,
         'description': description,
+        'meeting_type': meetingType,
       }),
     );
 

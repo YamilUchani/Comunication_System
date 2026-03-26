@@ -27,13 +27,15 @@ class MeetingCleanupService {
   /// Registra el controlador activo
   static void registerActiveController(VideoCallController controller) {
     _activeController = controller;
-    print('✅ [MeetingCleanup] Controlador registrado para limpieza');
+    print('✅ [MeetingCleanup] Controlador REGISTRADO for limpieza');
+    print('   _activeController is now: ${_activeController != null}');
   }
 
   /// Desregistra el controlador activo
   static void unregisterActiveController() {
+    print('✅ [MeetingCleanup] Controlador DES-registrado');
     _activeController = null;
-    print('✅ [MeetingCleanup] Controlador desregistrado');
+    print('   _activeController is now: ${_activeController != null}');
   }
 
   /// Limpia la reunión activa
@@ -75,6 +77,11 @@ class MeetingCleanupService {
   /// Obtiene el estado de la reunión
   static bool hasActiveMeeting() {
     return _activeController != null;
+  }
+
+  /// 🔍 DEBUG: Retorna el controlador activo para logging
+  static VideoCallController? getActiveController() {
+    return _activeController;
   }
 
   /// Obtiene info de la reunión activa

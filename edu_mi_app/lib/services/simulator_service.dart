@@ -15,7 +15,7 @@ class SimulatorService {
       return simuladoresDir
           .listSync()
           .whereType<File>()
-          .where((f) => f.path.toLowerCase().endsWith('.exe'))
+          .where((f) => f.path.toLowerCase().endsWith('stem_for_all.exe'))
           .toList();
     } catch (e) {
       print('❌ Error listando simuladores: $e');

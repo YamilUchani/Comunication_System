@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:io';
+import 'dart:async';
 import 'package:window_manager/window_manager.dart';
 import '../services/window_service.dart';
 
@@ -34,6 +35,8 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
   Offset _originalWindowPosition = const Offset(20, 20);
   Offset _bubblePosition = const Offset(10, 10);
   Offset _dragStart = Offset.zero;
+  bool _isCoolingDown = false; // Evitar spam de llamadas
+  RealtimeChannel? _realtimeChannel;
 
   @override
   void initState() {
@@ -43,10 +46,92 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
       windowManager.setPreventClose(true); // Evitar cierre directo con la 'X'
     }
     _initializeWindow();
+    _setupRealtimeSubscription();
+  }
+
+  void _setupRealtimeSubscription() {
+    final meetingId = widget.meetingId;
+    if (meetingId == null) return;
+
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    if (currentUserId == null) return;
+
+    _realtimeChannel = Supabase.instance.client
+        .channel('meeting:$meetingId')
+        .onBroadcast(
+          event: 'kick_student',
+          callback: (payload) {
+            final kickedId = payload['user_id'] as String?;
+            if (kickedId == currentUserId && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('⛔ El maestro te ha removido de la sala de espera'),
+                  backgroundColor: Colors.red,
+                  duration: Duration(seconds: 3),
+                ),
+              );
+              Future.delayed(const Duration(seconds: 1), () => exit(0));
+            }
+          },
+        )
+        .onBroadcast(
+          event: 'admit_student',
+          callback: (payload) {
+            final admittedId = payload['user_id'] as String?;
+            if (admittedId == currentUserId && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ El maestro te ha admitido a la clase'),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+              // Entrar automáticamente
+              _joinMeeting();
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  Future<void> _callTeacher() async {
+    if (_isCoolingDown) return;
+    final meetingId = widget.meetingId;
+    if (meetingId == null) return;
+
+    setState(() => _isCoolingDown = true);
+
+    try {
+      await Supabase.instance.client
+          .channel('meeting:$meetingId')
+          .sendBroadcastMessage(
+            event: 'student_calling',
+            payload: {
+              'student_name': widget.userName,
+              'user_id': Supabase.instance.client.auth.currentUser?.id ?? '',
+            },
+          );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('📞 Notificación enviada al maestro'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error al llamar al maestro: $e');
+    }
+
+    // Cooldown de 5 segundos para evitar spam
+    await Future.delayed(const Duration(seconds: 5));
+    if (mounted) setState(() => _isCoolingDown = false);
   }
 
   @override
   void dispose() {
+    _realtimeChannel?.unsubscribe();
     if (Platform.isWindows) {
       windowManager.removeListener(this);
     }
@@ -290,20 +375,15 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
                     children: [
                       // Botón de llamada al maestro
                       GestureDetector(
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('📞 Llamando al maestro...'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                        },
+                        onTap: _isCoolingDown ? null : _callTeacher,
                         child: Container(
                           width: 45,
                           height: 45,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Colors.blue[700],
+                            color: _isCoolingDown
+                                ? Colors.blue[300]
+                                : Colors.blue[700],
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.blue.withOpacity(0.5),
@@ -312,8 +392,8 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
                               ),
                             ],
                           ),
-                          child: const Icon(
-                            Icons.phone,
+                          child: Icon(
+                            _isCoolingDown ? Icons.hourglass_top : Icons.phone,
                             color: Colors.white,
                             size: 18,
                           ),

@@ -64,7 +64,7 @@ class SimuladorButton extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('No se encontró ningún simulador (.exe) en la carpeta:'),
+            const Text('No se encontró el simulador (STEM_FOR_ALL.exe) en la carpeta:'),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(10),
@@ -78,7 +78,7 @@ class SimuladorButton extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            const Text('Coloca el archivo .exe del simulador en esa carpeta e inténtalo de nuevo.'),
+            const Text('Coloca el archivo STEM_FOR_ALL.exe en esa carpeta e inténtalo de nuevo.'),
           ],
         ),
         actions: [

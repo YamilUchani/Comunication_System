@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'login_screen.dart';
 import 'channel_input_screen.dart';
-import '../Level/LevelSelectionScreen.dart'; // Importa la pantalla de niveles
+import '../Level/LevelSelectionScreen.dart';
 import '../services/meeting_cleanup_service.dart';
 import '../services/window_service.dart';
+import '../utils/dialog_utils.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -40,9 +41,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _signOut() async {
+    // 🔐 Pedir confirmación antes de cerrar sesión
+    final confirmed = await DialogUtils.showLogoutDialog(context);
+    if (!confirmed) return;
+
     // 🧹 Limpieza al cerrar sesión
     await MeetingCleanupService.cleanupActiveMeeting();
-    WindowService().terminateSecondaryWindows();
+    await WindowService().terminateSecondaryWindows();
 
     await Supabase.instance.client.auth.signOut();
     if (mounted) {

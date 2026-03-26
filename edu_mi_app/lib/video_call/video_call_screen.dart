@@ -3,16 +3,16 @@
 import 'dart:ui';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'video_call_controller.dart';
 import 'video_widgets.dart';
 import 'controls_bar.dart';
 import 'screen_sharing_windows.dart';
 import '../main.dart' as main_module;
-import 'chat/chat_controller.dart';
 import 'chat/chat_screen.dart';
+import 'chat/chat_controller.dart';
 import 'device_manager.dart'; // Importa el DeviceManager
+import '../services/window_service.dart'; // Importa WindowService
 import '../services/meeting_cleanup_service.dart';
 import 'package:window_manager/window_manager.dart';
 import '../services/api_service.dart';
@@ -52,6 +52,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
   bool _showStudents = false; // 👥 Control de visibilidad de lista de estudiantes
   List<dynamic> _studentsList = [];
   Timer? _studentsTimer;
+  bool _whiteboardOpen = false; // 🎨 Trackea si la pizarra está abierta
+  RealtimeChannel? _notificationsChannel; // 📡 Canal para notificaciones en tiempo real
+  
+  // 🫧 Bubble mode para maestro/admin (minimizar ventana)
+  bool _isBubbleMode = false;
+  Size? _preBubbleSize;
+  Offset? _preBubblePosition;
 
   @override
   void initState() {
@@ -116,6 +123,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
           );
         });
         _updateUsersList();
+        _subscribeToStudentCalls();
       }
     } catch (e) {
       if (mounted) {
@@ -123,6 +131,109 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
           SnackBar(content: Text('Error al inicializar la llamada: $e')),
         );
       }
+    }
+  }
+
+  /// 📡 Suscribirse a llamadas de estudiantes via Supabase Realtime
+  void _subscribeToStudentCalls() {
+    final meetingId = widget.meetingId;
+    if (meetingId == null) return;
+
+    _notificationsChannel = Supabase.instance.client
+        .channel('meeting:$meetingId')
+        .onBroadcast(
+          event: 'student_calling',
+          callback: (payload) {
+            final studentName = payload['student_name'] as String? ?? 'Un estudiante';
+            if (mounted) {
+              _showStudentCallingNotification(studentName);
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  /// 🔔 Mostrar notificación tipo banner cuando un estudiante llama
+  void _showStudentCallingNotification(String studentName) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.indigo[700],
+        duration: const Duration(seconds: 6),
+        content: Row(
+          children: [
+            const Icon(Icons.phone_in_talk, color: Colors.white, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '📞 $studentName quiere entrar a la clase\nRevisa la lista de miembros para unirlo.',
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 🚫 Expulsar a un estudiante del canal via Realtime
+  Future<void> _kickStudent(dynamic student) async {
+    final meetingId = widget.meetingId;
+    if (meetingId == null) return;
+
+    final studentName = student['name'] ?? 'Estudiante';
+    final userId = student['user_id'] as String?;
+    if (userId == null) return;
+
+    try {
+      await Supabase.instance.client
+          .channel('meeting:$meetingId')
+          .sendBroadcastMessage(
+            event: 'kick_student',
+            payload: {'user_id': userId},
+          );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⛔ $studentName ha sido expulsado'),
+            backgroundColor: Colors.red[700],
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error al expulsar estudiante: $e');
+    }
+  }
+
+  /// ✅ Admitir a un estudiante a la clase via Realtime
+  Future<void> _admitStudent(dynamic student) async {
+    final meetingId = widget.meetingId;
+    if (meetingId == null) return;
+
+    final studentName = student['name'] ?? 'Estudiante';
+    final userId = student['user_id'] as String?;
+    if (userId == null) return;
+
+    try {
+      await Supabase.instance.client
+          .channel('meeting:$meetingId')
+          .sendBroadcastMessage(
+            event: 'admit_student',
+            payload: {'user_id': userId},
+          );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ $studentName ha sido admitido a la clase'),
+            backgroundColor: Colors.green[700],
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error al admitir estudiante: $e');
     }
   }
 
@@ -193,11 +304,81 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
     }
   }
 
+  /// 🎨 Monitorea si la pizarra se cierra para actualizar el estado
+  Future<void> _monitorWhiteboardClosure() async {
+    if (widget.meetingId == null) return;
+    
+    // 🔄 Polling: Verificar cada 500ms si la pizarra sigue abierta
+    final checkInterval = Duration(milliseconds: 500);
+    int maxAttempts = 0;
+    
+    while (_whiteboardOpen && mounted && maxAttempts < 100000) {
+      await Future.delayed(checkInterval);
+      
+      // Si WindowService reporta que la pizarra NO está abierta, actualizar estado
+      if (!WindowService().isWhiteboardOpen(widget.meetingId!)) {
+        if (mounted) {
+          setState(() => _whiteboardOpen = false);
+          print('✅ Pizarra cerrada detectada. Estado actualizado.');
+        }
+        break;
+      }
+      maxAttempts++;
+    }
+  }
+
+  /// 🫧 Toggle bubble mode (minimizar/expandir ventana)
+  Future<void> _toggleBubbleMode() async {
+    if (!Platform.isWindows) return;
+    try {
+      await windowManager.ensureInitialized();
+      
+      if (!_isBubbleMode) {
+        // 💾 GUARDAR estado actual antes de encoger
+        _preBubbleSize = await windowManager.getSize();
+        _preBubblePosition = await windowManager.getPosition();
+        
+        _isBubbleMode = true;
+        await windowManager.setAlwaysOnTop(true);
+        await windowManager.setSize(const Size(220, 160));
+        await windowManager.setPosition(const Offset(40, 40));
+      } else {
+        // 🔙 RESTAURAR estado anterior
+        _isBubbleMode = false;
+        await windowManager.setAlwaysOnTop(false);
+        if (_preBubbleSize != null) {
+          await windowManager.setSize(_preBubbleSize!);
+        } else {
+          await windowManager.setSize(const Size(1000, 700));
+        }
+
+        if (_preBubblePosition != null) {
+          await windowManager.setPosition(_preBubblePosition!);
+        } else {
+          await windowManager.center();
+        }
+      }
+      setState(() {});
+    } catch (e) {
+      print('❌ Error Bubble Mode: $e');
+    }
+  }
+
   /// ❌ Salir de la videollamada
   Future<void> _exitMeeting() async {
     print('🚪 Saliendo de la videollamada...');
     
     try {
+      // 🎨 Cerrar pizarra si existe
+      if (widget.meetingId != null) {
+        try {
+          await WindowService().closeWhiteboardWindow(widget.meetingId!);
+          print('✅ Pizarra cerrada');
+        } catch (e) {
+          print('⚠️ La pizarra no estaba abierta o error cerrándola: $e');
+        }
+      }
+      
       // Ejecutar leaveAndDispose y esperar a que se complete
       await controller.leaveAndDispose();
       // Esperar un poco más para asegurar que Agora haya procesado la salida
@@ -281,12 +462,16 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
 
     return WillPopScope(
       onWillPop: () async {
+        if (_isBubbleMode) {
+          await _toggleBubbleMode();
+          return false;
+        }
         _showExitDialog();
         return false;
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: ValueListenableBuilder<bool>(
+        body: _isBubbleMode ? _buildBubbleUI() : ValueListenableBuilder<bool>(
           valueListenable: controller.localUserJoined,
           builder: (context, joined, _) {
             if (!joined) {
@@ -422,6 +607,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
                                           statusText = 'Ausente';
                                       }
 
+                                      final canKick = status == 'in_call' || status == 'waiting';
+                                      final canAdmit = status == 'waiting';
+
                                       return ListTile(
                                         leading: CircleAvatar(
                                           backgroundColor: Colors.white10,
@@ -445,6 +633,28 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
                                             Text(
                                               statusText,
                                               style: TextStyle(color: dotColor, fontSize: 12),
+                                            ),
+                                          ],
+                                        ),
+                                        trailing: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (canAdmit)
+                                              IconButton(
+                                                icon: const Icon(Icons.check_circle, color: Colors.greenAccent),
+                                                tooltip: 'Admitir a la clase',
+                                                onPressed: () => _admitStudent(student),
+                                              ),
+                                            if (canKick)
+                                              IconButton(
+                                                icon: const Icon(Icons.person_remove, color: Colors.redAccent),
+                                                tooltip: 'Expulsar',
+                                                onPressed: () => _kickStudent(student),
+                                              ),
+                                            IconButton(
+                                              icon: const Icon(Icons.assignment_turned_in, color: Colors.tealAccent),
+                                              tooltip: 'Evaluar Estudiante',
+                                              onPressed: () => _showAttendanceAndAchievementsDialog(student),
                                             ),
                                           ],
                                         ),
@@ -500,6 +710,33 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
               onExit: _exitMeeting, // Pasar el callback para salir
               onToggleChat: _toggleChat, // Pasar el callback para toggle del chat
               onToggleStudents: _toggleStudents,
+              onToggleWhiteboard: () {
+                if (_whiteboardOpen) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('La pizarra ya está abierta')),
+                  );
+                  return;
+                }
+                if (widget.meetingId != null) {
+                  setState(() => _whiteboardOpen = true);
+                  WindowService()
+                      .openWhiteboardWindow(
+                        meetingId: widget.meetingId!,
+                        isTeacher: true,
+                      )
+                      .then((_) {
+                    _monitorWhiteboardClosure();
+                  }).catchError((e) {
+                    setState(() => _whiteboardOpen = false);
+                    print('Error al abrir pizarra: $e');
+                  });
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('No hay reunión activa para iniciar la pizarra')),
+                  );
+                }
+              },
+              onToggleBubbleMode: _toggleBubbleMode, // 🫧 Pasar callback para minimizar
             );
           },
         ),
@@ -507,9 +744,198 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
     );
   }
 
+  /// 🫧 Construir UI en modo burbuja (ventana minimizada)
+  Widget _buildBubbleUI() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.teal, width: 2),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          // Mostrar el widget de videos principal
+          Positioned.fill(
+            child: ValueListenableBuilder<bool>(
+              valueListenable: controller.localUserJoined,
+              builder: (context, joined, _) {
+                if (!joined) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: Colors.teal),
+                  );
+                }
+                return VideoWidgets(
+                  controller: controller,
+                );
+              },
+            ),
+          ),
+          // Botón para expandir
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _toggleBubbleMode,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.open_in_full, color: Colors.white, size: 16),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAttendanceAndAchievementsDialog(dynamic student) async {
+    final studentId = student['user_id'];
+    final studentName = student['name'] ?? 'Estudiante';
+    final todayStr = DateTime.now().toIso8601String().split('T')[0];
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    String? attendanceId;
+    List<dynamic> allAchievements = [];
+    List<dynamic> currentAchievementsList = [];
+
+    try {
+      // 1. Guardar o asegurar asistencia de hoy
+      final records = await ApiService.recordAttendance(
+        meetingDate: todayStr,
+        studentIds: [studentId],
+        meetingId: widget.meetingId,
+        notes: 'Registro desde la clase virtual',
+      );
+      if (records.isNotEmpty) {
+        attendanceId = records[0]['id'];
+      }
+
+      // 2. Obtener la lista general de logros
+      allAchievements = await ApiService.getAchievements();
+
+      // 3. Obtener los logros del alumno en ESTA sesión
+      if (attendanceId != null) {
+        final res = await Supabase.instance.client
+            .from('student_achievements')
+            .select('*')
+            .eq('attendance_id', attendanceId);
+        currentAchievementsList = res as List<dynamic>;
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // cerrar loader
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    Navigator.pop(context); // cerrar loader
+
+    if (attendanceId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo obtener la asistencia')));
+      return;
+    }
+
+    Set<String> unlockedAchievementIds = currentAchievementsList.map((e) => e['achievement_id'] as String).toSet();
+
+    // Diálogo con los checkboxes listos
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              title: Text('Evaluación: $studentName'),
+              content: SizedBox(
+                width: 400,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Asistencia del día guardada exitosamente.', style: TextStyle(color: Colors.green)),
+                    const SizedBox(height: 15),
+                    const Text('Otorgar logros a este estudiante en la clase actual:'),
+                    const SizedBox(height: 10),
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: allAchievements.length,
+                        itemBuilder: (context, index) {
+                          final ach = allAchievements[index];
+                          final achId = ach['id'] as String;
+                          final isUnlocked = unlockedAchievementIds.contains(achId);
+
+                          return CheckboxListTile(
+                            title: Text('${ach['icon']} ${ach['name']}'),
+                            subtitle: Text(ach['description'] ?? '', style: const TextStyle(fontSize: 12)),
+                            value: isUnlocked,
+                            onChanged: (val) async {
+                              // Optimistic UI update
+                              setModalState(() {
+                                if (val == true) unlockedAchievementIds.add(achId);
+                                else unlockedAchievementIds.remove(achId);
+                              });
+
+                              try {
+                                if (val == true) {
+                                  // Agregar
+                                  await ApiService.assignAchievementsToAttendance(attendanceId!, [achId]);
+                                } else {
+                                  // Remover (directo)
+                                  await Supabase.instance.client
+                                      .from('student_achievements')
+                                      .delete()
+                                      .eq('student_id', studentId)
+                                      .eq('achievement_id', achId)
+                                      .eq('attendance_id', attendanceId!);
+                                }
+                              } catch (e) {
+                                setModalState(() {
+                                  if (val == true) unlockedAchievementIds.remove(achId);
+                                  else unlockedAchievementIds.add(achId);
+                                });
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al cambiar logro: $e')));
+                                }
+                              }
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Completado'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     _studentsTimer?.cancel();
+    _notificationsChannel?.unsubscribe();
     if (Platform.isWindows) {
       windowManager.removeListener(this);
     }

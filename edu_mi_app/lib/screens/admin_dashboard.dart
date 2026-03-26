@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/api_service.dart';
 import '../services/window_service.dart';
 import '../services/meeting_cleanup_service.dart';
+import '../utils/dialog_utils.dart';
 import '../video_call/video_call_screen.dart';
 import 'materials_screen.dart';
 
@@ -73,9 +74,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
+              // 🔐 Pedir confirmación antes de cerrar sesión
+              final confirmed = await DialogUtils.showLogoutDialog(context);
+              if (!confirmed) return;
+
               // 🧹 Limpieza al cerrar sesión
               await MeetingCleanupService.cleanupActiveMeeting();
-              WindowService().terminateSecondaryWindows();
+              await WindowService().terminateSecondaryWindows();
 
               await Supabase.instance.client.auth.signOut();
               if (context.mounted) {

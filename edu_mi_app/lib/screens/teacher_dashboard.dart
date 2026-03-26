@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../services/window_service.dart';
 import '../services/meeting_cleanup_service.dart';
+import '../utils/dialog_utils.dart';
 import 'materials_screen.dart';
 import '../widgets/simulador_button.dart';
 
@@ -142,9 +143,13 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
+              // 🔐 Pedir confirmación antes de cerrar sesión
+              final confirmed = await DialogUtils.showLogoutDialog(context);
+              if (!confirmed) return;
+
               // 🧹 Limpieza al cerrar sesión
               await MeetingCleanupService.cleanupActiveMeeting();
-              WindowService().terminateSecondaryWindows();
+              await WindowService().terminateSecondaryWindows();
 
               await Supabase.instance.client.auth.signOut();
               if (context.mounted) {

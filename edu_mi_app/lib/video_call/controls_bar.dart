@@ -15,6 +15,8 @@ class ControlsBar extends StatelessWidget {
   final VoidCallback? onExit; // Callback opcional para salir correctamente
   final VoidCallback? onToggleChat; // Callback para toggle del chat
   final VoidCallback? onToggleStudents; // Callback para toggle de la lista de estudiantes
+  final VoidCallback? onToggleWhiteboard; // Callback para pizarra
+  final VoidCallback? onToggleBubbleMode; // 🫧 Callback para minimizar ventana
 
   const ControlsBar({
     super.key,
@@ -26,6 +28,8 @@ class ControlsBar extends StatelessWidget {
     this.onExit,
     this.onToggleChat,
     this.onToggleStudents,
+    this.onToggleWhiteboard,
+    this.onToggleBubbleMode,
   });
 
   @override
@@ -96,6 +100,13 @@ class ControlsBar extends StatelessWidget {
                   );
                 },
               ),
+
+              // Botón de Pizarra
+              if (onToggleWhiteboard != null)
+                IconButton(
+                  icon: const Icon(Icons.brush, color: Colors.white, size: 30),
+                  onPressed: onToggleWhiteboard,
+                ),
 
               // Botón para menú de dispositivos
               PopupMenuButton<String>(
@@ -318,6 +329,14 @@ class ControlsBar extends StatelessWidget {
                   );
                 },
               ),
+
+              // 🫧 Botón para minimizar ventana a burbuja
+              if (onToggleBubbleMode != null)
+                IconButton(
+                  icon: const Icon(Icons.crop_din, color: Colors.white, size: 30),
+                  tooltip: 'Minimizar Ventana',
+                  onPressed: onToggleBubbleMode,
+                ),
 
               // Botón de colgar
               IconButton(

@@ -221,7 +221,10 @@ class _RemoteVideoWithFrozenDetectionState
       controller: VideoViewController.remote(
         rtcEngine: widget.rtcEngine,
         connection: RtcConnection(channelId: widget.channelName),
-        canvas: VideoCanvas(uid: widget.uid),
+        canvas: VideoCanvas(
+          uid: widget.uid,
+          renderMode: RenderModeType.renderModeFit, // 📏 NO recortar el video, mantener proporción
+        ),
       ),
     );
   }

@@ -17,6 +17,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
   final _descriptionController = TextEditingController();
   final _meetingService = MeetingService();
   bool _isLoading = false;
+  String _selectedMeetingType = 'master'; // 🔥 Selección del tipo de clase
 
   @override
   void dispose() {
@@ -38,6 +39,7 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
         channelName: _channelController.text.trim(),
         title: _titleController.text.trim(),
         description: _descriptionController.text.trim(),
+        meetingType: _selectedMeetingType,
       );
 
       if (!mounted) return;
@@ -124,6 +126,29 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
                   prefixIcon: Icon(Icons.description),
                 ),
                 maxLines: 3,
+              ),
+              const SizedBox(height: 16),
+              const Text('Tipo de Clase:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(
+                    value: 'master',
+                    label: Text('Magistral'),
+                    icon: Icon(Icons.school),
+                  ),
+                  ButtonSegment(
+                    value: 'private',
+                    label: Text('Privada/Grupal'),
+                    icon: Icon(Icons.group),
+                  ),
+                ],
+                selected: {_selectedMeetingType},
+                onSelectionChanged: (Set<String> newSelection) {
+                  setState(() {
+                    _selectedMeetingType = newSelection.first;
+                  });
+                },
               ),
               const SizedBox(height: 24),
               ElevatedButton(

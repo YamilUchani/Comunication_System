@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -17,10 +18,13 @@ import 'screens/waiting_for_assignment_screen.dart';
 import 'package:window_manager/window_manager.dart';
 import 'services/windows_service.dart';
 import 'services/window_service.dart';
+import 'services/meeting_cleanup_service.dart';
 import 'services/deep_link_service.dart';
 import 'video_call/video_call_screen.dart';
 import 'video_call/student_video_call_screen.dart';
 import 'screens/pdf_viewer_screen.dart';
+import 'video_call/whiteboard/whiteboard_overlay.dart';
+import 'utils/dialog_utils.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 bool _isAuthInProgress = false;
@@ -28,6 +32,7 @@ bool isSecondaryWindow = false; // 🪟 Indica si es una ventana secundaria (vid
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  _currentArgs = args; // 🔍 Guardar args globales para _registerSecondaryProcessPid
   print('DEBUG: Recibidos args: $args');
 
   try {
@@ -58,6 +63,9 @@ Future<void> main(List<String> args) async {
     isSecondaryWindow = true; // 🪟 Marcar como ventana secundaria
     print('🧩 [CHILD PROCESS] Detectado modo secundario. Supabase inicializado ✅');
     
+    // 📝 Registrar propio PID en el archivo compartido
+    await _registerSecondaryProcessPid();
+    
     final mode = _getArgValue(args, 'mode') ?? 'video-call';
     final channel = _getArgValue(args, 'channel');
     final token = _getArgValue(args, 'token');
@@ -72,6 +80,7 @@ Future<void> main(List<String> args) async {
     final windowHeightStr = _getArgValue(args, 'windowHeight');
     final windowWidth = windowWidthStr != null ? int.tryParse(windowWidthStr) : null;
     final windowHeight = windowHeightStr != null ? int.tryParse(windowHeightStr) : null;
+    final isPrivateClass = _getArgValue(args, 'isPrivateClass') == 'true';
 
     final appId = dotenv.env['AGORA_APP_ID'] ?? '';
     print('   - Modo: $mode');
@@ -87,6 +96,7 @@ Future<void> main(List<String> args) async {
           // ← Formato vertical (portrait), pegado al borde derecho
           await windowManager.setSize(const Size(520, 850));
           await windowManager.setPosition(initialWindowPosition());
+          await windowManager.setAlwaysOnTop(true);
         }
 
         runApp(
@@ -101,6 +111,40 @@ Future<void> main(List<String> args) async {
         print('❌ [CHILD PROCESS] Faltan argumentos para PDF Viewer (pdfUrl)');
         exit(1);
       }
+    } else if (mode == 'whiteboard') {
+      // --- MODO PIZARRA GLOBAL ---
+      final isTeacherArg = _getArgValue(args, 'isTeacher') == 'true';
+
+      if (Platform.isWindows) {
+        await windowManager.ensureInitialized();
+        WindowOptions windowOptions = const WindowOptions(
+          backgroundColor: Colors.transparent, // Muy importante
+          skipTaskbar: false,
+          titleBarStyle: TitleBarStyle.hidden, // Frameless
+          alwaysOnTop: true,
+        );
+        await windowManager.waitUntilReadyToShow(windowOptions, () async {
+          await windowManager.setFullScreen(true); // Toda la pantalla
+          await windowManager.show();
+          await windowManager.focus();
+        });
+      }
+
+      runApp(
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData.dark(),
+          home: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: WhiteboardOverlay(
+              isTeacher: isTeacherArg,
+              meetingId: meetingId ?? '',
+              onClose: () => exit(0), // Cierra proceso al cerrar pizarra
+            ),
+          ),
+        ),
+      );
+      return;
     } else if (channel != null && token != null) {
       try {
         if (mode == 'waiting-room') {
@@ -114,6 +158,7 @@ Future<void> main(List<String> args) async {
             // Establecer tamaño minúsculo para la sala de espera
             await windowManager.setSize(const Size(250, 200));
             await windowManager.setPosition(const Offset(20, 20));
+            await windowManager.setAlwaysOnTop(true);
           }
 
           runApp(
@@ -144,11 +189,22 @@ Future<void> main(List<String> args) async {
           print('   - Canal: $channel, Rol: $userRole, UID: $uid, MeetingID: $meetingId');
 
           // Establecer tamaño de ventana si se proporcionó
-          if (Platform.isWindows && (windowWidth != null || windowHeight != null)) {
+          if (Platform.isWindows) {
             await windowManager.ensureInitialized();
-            if (windowWidth != null && windowHeight != null) {
-              await windowManager.setSize(Size(windowWidth.toDouble(), windowHeight.toDouble()));
-            }
+            
+            // ✅ WindowOptions robustas (como el PDF)
+            WindowOptions windowOptions = const WindowOptions(
+              skipTaskbar: false,
+              alwaysOnTop: true,  // 🔼 Siempre adelante
+            );
+            
+            await windowManager.waitUntilReadyToShow(windowOptions, () async {
+              if (windowWidth != null && windowHeight != null) {
+                await windowManager.setSize(Size(windowWidth.toDouble(), windowHeight.toDouble()));
+              }
+              await windowManager.show();
+              await windowManager.focus();
+            });
           }
 
           // 🎓 Si es estudiante, usar StudentVideoCallScreen (sistema diferente con auto-compartir pantalla)
@@ -167,6 +223,7 @@ Future<void> main(List<String> args) async {
                 uid: uid,
                 meetingId: meetingId,
                 authToken: authToken,
+                isPrivateClass: isPrivateClass,
               ),
             ));
           } else {
@@ -265,6 +322,67 @@ String? _getArgValue(List<String> args, String name) {
   return null;
 }
 
+/// 📝 Registra el PID del proceso secundario en un archivo compartido
+/// Así la ventana principal puede saber qué PIDs matar al cerrar
+/// Se llama AUTOMÁTICAMENTE para: videollamada, sala de espera, pizarra, PDF viewer
+Future<void> _registerSecondaryProcessPid() async {
+  try {
+    final tempDir = Directory.systemTemp;
+    final pidFile = File('${tempDir.path}${Platform.pathSeparator}edu_mi_app_pids.json');
+    
+    final currentPid = pid;
+    final mode = _getArgValue(_currentArgs, 'mode') ?? 'unknown';
+    final userRole = _getArgValue(_currentArgs, 'userRole') ?? 'N/A';
+    
+    print('📝 [SECONDARY] Registrando proceso secundario:');
+    print('    - PID: $currentPid');
+    print('    - Modo: $mode');
+    print('    - Rol: $userRole');
+    
+    // Leer PIDs existentes
+    List<Map<String, dynamic>> processes = [];
+    if (pidFile.existsSync()) {
+      try {
+        final content = await pidFile.readAsString();
+        final json = jsonDecode(content) as Map<String, dynamic>;
+        processes = (json['processes'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
+      } catch (e) {
+        print('⚠️ Error leyendo registry anterior: $e');
+      }
+    }
+    
+    // Agregar SI NO ESTÁ DUPLICADO
+    final pidExists = processes.any((p) => p['pid'] == currentPid);
+    if (!pidExists) {
+      processes.add({
+        'pid': currentPid,
+        'mode': mode,
+        'role': userRole,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+      print('✅ PID $currentPid AGREGADO a registry (modo: $mode, rol: $userRole)');
+    } else {
+      print('ℹ️ PID $currentPid ya estaba en registry');
+    }
+    
+    // Escribir de vuelta
+    final json = jsonEncode({'processes': processes});
+    await pidFile.writeAsString(json);
+    print('✅ Registry actualizado con ${processes.length} proceso(s)');
+    
+    // Mostrar estado actual
+    print('📋 Procesos en registry:');
+    for (var p in processes) {
+      print('    - PID ${p['pid']}: ${p['mode']} (${p['role']})');
+    }
+  } catch (e) {
+    print('⚠️ Error registrando PID: $e');
+  }
+}
+
+// 🔍 Variable global para guardar args y poder consultarlos en _registerSecondaryProcessPid
+List<String> _currentArgs = [];
+
 Future<String> _nextRoute() async {
   final user = Supabase.instance.client.auth.currentUser;
   print('🔍 _nextRoute: Checking user: ${user?.id}');
@@ -334,24 +452,74 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver, WindowListener {
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    
+    if (Platform.isWindows) {
+      windowManager.addListener(this);
+      windowManager.setPreventClose(true);
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (Platform.isWindows) {
+      windowManager.removeListener(this);
+    }
     super.dispose();
   }
 
   @override
   Future<AppExitResponse> didRequestAppExit() async {
-    // Cuando la ventana principal se cierra, matamos a los hijos
-    WindowService().terminateSecondaryWindows();
+    // � Pedir confirmación al cerrar la app
+    print('🔴 [MAIN] Cierre detectado. Pidiendo confirmación...');
+    
+    await WindowService().terminateSecondaryWindows();
     return AppExitResponse.exit;
+      return AppExitResponse.exit;
+  }
+
+  @override
+  void onWindowClose() async {
+    // 🔐 REGLA SIMPLE:
+    // - Si hay videollamada ACTIVA → NO PERMITIR CIERRE (devolver false)
+    // - Si NO hay videollamada → Cerrar inmediatamente
+    
+    print('═══════════════════════════════════════════════════════');
+    print('🔴 [MAIN] onWindowClose INICIADO');
+    print('═══════════════════════════════════════════════════════');
+    
+    final hasActiveMeeting = MeetingCleanupService.hasActiveMeeting();
+    print('   📊 hasActiveMeeting=$hasActiveMeeting');
+    print('   📝 _activeController: ${MeetingCleanupService.getActiveController()}');
+    
+    if (hasActiveMeeting) {
+      // 🚫 BLOQUEAR cierre. El usuario debe usar el botón Salir en la app
+      print('🚫 [MAIN] BLOQUEADO: hay videollamada activa, cierre prohibido');
+      print('═══════════════════════════════════════════════════════');
+      windowManager.setPreventClose(true);
+      return; // NO cerrar
+    }
+    
+    // ✅ Cerrar inmediatamente (sin diálogo, es muy lento)
+    print('✅ [MAIN] Sin videollamada activa → procediendo a cerrar');
+    print('   🔪 Llamando terminateSecondaryWindows()...');
+    
+    try {
+      await WindowService().terminateSecondaryWindows();
+      print('✅ [MAIN] terminateSecondaryWindows() completado');
+    } catch (e) {
+      print('❌ [MAIN] Error en terminateSecondaryWindows(): $e');
+    }
+    
+    print('   🚪 Llamando windowManager.destroy()...');
+    await windowManager.destroy();
+    print('✅ [MAIN] Ventana destruida');
+    print('═══════════════════════════════════════════════════════');
   }
 
   Future<String?> _getUserName() async {

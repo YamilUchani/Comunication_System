@@ -7,15 +7,18 @@
 import 'dart:ui';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'video_call_controller.dart';
 import 'screen_sharing_windows.dart';
 import 'video_widgets.dart';
 import 'chat/chat_controller.dart';
 import 'package:window_manager/window_manager.dart';
+import 'whiteboard/whiteboard_overlay.dart'; // Importe de la pizarra
 import '../main.dart' as main_module;
 import '../services/meeting_cleanup_service.dart';
 import '../services/window_service.dart';
 import '../services/api_service.dart';
+import '../utils/dialog_utils.dart';
 
 class StudentVideoCallScreen extends StatefulWidget {
   final String channelName;
@@ -32,9 +35,11 @@ class StudentVideoCallScreen extends StatefulWidget {
     this.uid,
     this.meetingId,
     this.authToken,
+    this.isPrivateClass = false,
   });
 
   final int? uid;
+  final bool isPrivateClass;
 
   @override
   _StudentVideoCallScreenState createState() => _StudentVideoCallScreenState();
@@ -55,17 +60,28 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
   bool _showChat = false;
   bool _isFullScreen = false;
   bool _isBubbleMode = false;
+  bool _showWhiteboard = true;  // 🎨 Control de visibilidad de pizarra (cierre en cascada)
   Size? _preBubbleSize;
   Offset? _preBubblePosition;
+  
+  bool _isTogglingFullScreen = false; // 🔒 Bloqueo para evitar bugs de clics simultáneos
+  RealtimeChannel? _kickChannel; // 📡 Canal para escuchar expulsiones
 
   void _toggleFullScreen() async {
+    if (_isTogglingFullScreen) return;
+    _isTogglingFullScreen = true;
+
     try {
       if (Platform.isWindows) {
         if (_isBubbleMode) await _toggleBubbleMode(); // Salir de burbuja primero
         await windowManager.ensureInitialized();
-        _isFullScreen = !_isFullScreen;
-        await windowManager.setFullScreen(_isFullScreen);
-        setState(() {});
+        final targetState = !_isFullScreen;
+        await windowManager.setFullScreen(targetState);
+        if (mounted) {
+          setState(() {
+            _isFullScreen = targetState;
+          });
+        }
       } else {
         setState(() {
           _isFullScreen = !_isFullScreen;
@@ -73,7 +89,10 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
       }
     } catch (e) {
       print('❌ Error Full Screen: $e');
-      setState(() { _isFullScreen = !_isFullScreen; });
+    } finally {
+      if (mounted) {
+        _isTogglingFullScreen = false;
+      }
     }
   }
 
@@ -118,12 +137,14 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
   }
 
   @override
-  void initState() {    print('🔴 [StudentVideoCallScreenState] initState() INICIANDO');    print('🔴 [StudentVideoCallScreen] initState() INICIANDO');
+  void initState() {    
+    print('🔴 [StudentVideoCallScreenState] initState() INICIANDO');
+    print('🔴 [StudentVideoCallScreen] initState() INICIANDO');
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     if (Platform.isWindows) {
       windowManager.addListener(this);
-      windowManager.setPreventClose(true); // Evitar cierre directo con la 'X'
+      windowManager.setPreventClose(true);
     }
     controller = VideoCallController(
       channelName: widget.channelName,
@@ -133,7 +154,9 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
       authToken: widget.authToken,
     );
     // 📝 Registrar este controlador para limpieza en logout
+    print('📝 [StudentVideoCallScreen] Registrando controlador...');
     MeetingCleanupService.registerActiveController(controller);
+    print('✅ [StudentVideoCallScreen] Controlador REGISTRADO exitosamente');
     print('🔴 [StudentVideoCallScreen] Controller creado, llamando _initAgora()');
     _initAgora();
     print('🔴 [StudentVideoCallScreen] _initAgora() llamado, esperando resultado...');
@@ -191,6 +214,9 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
         // Procesar estado inicial por si ya hay remotos
         _onRemoteUidsChanged();
 
+        // 🚫 Suscribirse a eventos de expulsión
+        _subscribeToKick();
+
         print('[INIT] ✅ Listo para compartir pantalla manualmente');
       }
     } catch (e) {
@@ -214,6 +240,37 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
         print('[CHAT] 🏫 Maestro detectado: UID=$teacherUidStr');
       }
     }
+  }
+
+  /// 🚫 Suscribirse a eventos de expulsión del maestro
+  void _subscribeToKick() {
+    final meetingId = widget.meetingId;
+    if (meetingId == null) return;
+
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    if (currentUserId == null) return;
+
+    _kickChannel = Supabase.instance.client
+        .channel('meeting:$meetingId')
+        .onBroadcast(
+          event: 'kick_student',
+          callback: (payload) {
+            final kickedId = payload['user_id'] as String?;
+            if (kickedId == currentUserId && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('⛔ El maestro te ha expulsado de la clase'),
+                  backgroundColor: Colors.red,
+                  duration: Duration(seconds: 3),
+                ),
+              );
+              Future.delayed(const Duration(seconds: 1), () {
+                if (mounted) _exitMeeting();
+              });
+            }
+          },
+        )
+        .subscribe();
   }
 
   Future<int> _getLocalUid() async {
@@ -369,6 +426,16 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
       await _stopScreenShare();
     }
     
+    // 🎨 Cerrar pizarra si existe
+    if (widget.meetingId != null) {
+      try {
+        await WindowService().closeWhiteboardWindow(widget.meetingId!);
+        print('✅ Pizarra cerrada');
+      } catch (e) {
+        print('⚠️ La pizarra no estaba abierta o error cerrándola: $e');
+      }
+    }
+    
     // Agregar un pequeño delay para permitir que notifyLeaveChannel se complete
     // antes de descartar los recursos de la pantalla
     try {
@@ -415,24 +482,14 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
         backgroundColor: Colors.black,
         body: _isBubbleMode
           ? _buildBubbleUI()
-          : _isFullScreen 
-            ? Stack(
-              children: [
-                Positioned.fill(child: _buildTeacherArea()),
-                Positioned(
-                  top: 20,
-                  right: 20,
-                  child: FloatingActionButton(
-                    heroTag: 'exit_fullscreen_top',
-                    backgroundColor: Colors.orange.withOpacity(0.9),
-                    onPressed: _toggleFullScreen,
-                    child: const Icon(Icons.fullscreen_exit, color: Colors.white, size: 28),
-                  ),
-                ),
-              ],
-            )
           : Stack(
               children: [
+                // Si es pantalla completa, dibujamos primero todo el fondo con el maestro
+                if (_isFullScreen)
+                  Positioned.fill(child: _buildTeacherArea()),
+
+                // Y si NO es pantalla completa, dibujamos el diseño normal de ventanas
+                if (!_isFullScreen) ...[
                 // 🎥 Contenido principal centrado
             ValueListenableBuilder<bool>(
               valueListenable: controller.localUserJoined,
@@ -458,13 +515,9 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
                   );
                 }
 
-                return Center(
+                return Padding(
+                  padding: const EdgeInsets.all(8.0),
                   child: Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 320,
-                      maxWidth: 850,
-                      maxHeight: 500,
-                    ),
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.orange.withOpacity(0.5), width: 2),
                       borderRadius: BorderRadius.circular(20),
@@ -486,7 +539,14 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
                             children: [
                               Column(
                                 children: [
-                                  Expanded(child: _buildStudentVideoLayout()),
+                                  Expanded(
+                                    child: widget.isPrivateClass 
+                                      ? VideoWidgets(
+                                          controller: controller,
+                                          screenController: screenController,
+                                        )
+                                      : _buildStudentVideoLayout(),
+                                  ),
                                 ],
                               ),
 
@@ -536,7 +596,7 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
                 );
               },
             ),
-
+            
             // 💬 Panel de chat deslizable (desde la derecha)
             AnimatedPositioned(
               duration: const Duration(milliseconds: 300),
@@ -552,10 +612,11 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
               ),
             ),
           ],
-        ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 
 
   // ========== DIÁLOGOS DE CONFIRMACIÓN ==========
@@ -655,64 +716,11 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
     }
   }
 
-  void _showExitDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return Dialog(
-          backgroundColor: Colors.grey[900],
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  '¿Salir completamente de la clase?',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 25),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey[800],
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                        child: const Text('Cancelar', style: TextStyle(fontSize: 13)),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _exitMeeting();
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red[600],
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                        child: const Text('Salir', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
+  void _showExitDialog() async {
+    final confirmed = await DialogUtils.showExitMeetingDialog(context);
+    if (confirmed && mounted) {
+      _exitMeeting();
+    }
   }
 
   /// 🎥 Construir vista de pantalla compartida
@@ -868,12 +876,13 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
 
   /// 🎓 Área del maestro (Video o Pantalla compartida)
   Widget _buildTeacherArea() {
-    return GestureDetector(
-      onDoubleTap: _toggleFullScreen,
-      child: Container(
-        color: Colors.black,
-        child: ValueListenableBuilder<Set<int>>(
-          valueListenable: controller.remoteUids,
+    return Container(
+      color: Colors.black,
+      child: Stack(
+        children: [
+            Positioned.fill(
+              child: ValueListenableBuilder<Set<int>>(
+                valueListenable: controller.remoteUids,
           builder: (context, remoteUids, _) {
             return ValueListenableBuilder<Set<int>>(
               valueListenable: controller.remoteScreenShareUids,
@@ -1009,6 +1018,40 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
           },
         ),
       ),
+          
+          // 🎨 PIZARRA DEL PROFESOR (en tiempo real)
+          if (widget.meetingId != null && _showWhiteboard)
+            Positioned.fill(
+              child: IgnorePointer( // El estudiante solo ve, no dibuja ni interactúa para evitar bugs de clicks
+                child: WhiteboardOverlay(
+                  isTeacher: false,
+                  meetingId: widget.meetingId!,
+                  onClose: () {
+                    // 🚪 Cuando maestro cierra pizarra (evento close_board)
+                    setState(() => _showWhiteboard = false);
+                    print('🚪 [Estudiante] Pizarra cerrada. Overlay oculto.');
+                  },
+                ),
+              ),
+            ),
+
+          // 🔲 BOTON MAXIMIZAR SIEMPRE VISIBLE
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.black54,
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: Icon(_isFullScreen ? Icons.fullscreen_exit : Icons.fullscreen, color: Colors.white),
+                tooltip: _isFullScreen ? 'Salir de Pantalla Completa' : 'Pantalla Completa',
+                onPressed: _toggleFullScreen,
+              ),
+            ),
+          ),
+        ]),
     );
   }
 
@@ -1267,6 +1310,7 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
 
   @override
   void dispose() {
+    _kickChannel?.unsubscribe();
     if (Platform.isWindows) {
       if (_isFullScreen) windowManager.setFullScreen(false);
       if (_isBubbleMode) {
@@ -1278,7 +1322,9 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
     WidgetsBinding.instance.removeObserver(this);
     controller.remoteUids.removeListener(_onRemoteUidsChanged);
     // Desregistrar para que no intente limpiar si ya se limpió
+    print('📝 [StudentVideoCallScreen] Desregistrando controlador en dispose...');
     MeetingCleanupService.unregisterActiveController();
+    print('✅ [StudentVideoCallScreen] Controlador DESREGISTRADO en dispose');
     controller.dispose();
     screenController?.dispose();
     chatController?.dispose();

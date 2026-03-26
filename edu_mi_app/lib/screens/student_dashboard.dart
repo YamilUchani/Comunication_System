@@ -5,8 +5,7 @@ import 'package:table_calendar/table_calendar.dart';
 import '../services/api_service.dart';
 import '../services/window_service.dart';
 import '../services/meeting_cleanup_service.dart';
-import '../video_call/video_call_screen.dart';
-import 'student_waiting_room_screen.dart';
+import '../utils/dialog_utils.dart';
 import 'materials_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
@@ -28,6 +27,10 @@ class _StudentDashboardState extends State<StudentDashboard> {
   DateTime? _selectedDay;
   CalendarFormat _calendarFormat = CalendarFormat.month;
   Map<DateTime, List<dynamic>> _attendanceEvents = {};
+  
+  // Today's status
+  bool _isAttendedToday = false;
+  List<dynamic> _todayAchievements = [];
 
   @override
   void initState() {
@@ -64,8 +67,15 @@ class _StudentDashboardState extends State<StudentDashboard> {
           print('Nota: El servidor aún no soporta la ruta de horarios.');
         }
 
-        // Procesar eventos del calendario
+        // Procesar eventos del calendario y estado de hoy
         _attendanceEvents.clear();
+        _isAttendedToday = false;
+        _todayAchievements.clear();
+
+        final now = DateTime.now();
+        final todayNormalized = DateTime(now.year, now.month, now.day);
+        List<String> todayAttendanceIds = [];
+
         if (_attendanceHistory != null) {
           for (var record in _attendanceHistory!) {
             if (record['meeting_date'] == null) continue;
@@ -75,8 +85,41 @@ class _StudentDashboardState extends State<StudentDashboard> {
               _attendanceEvents[normalizedDate] = [];
             }
             _attendanceEvents[normalizedDate]!.add(record);
+
+            if (normalizedDate.isAtSameMomentAs(todayNormalized)) {
+              _isAttendedToday = true;
+              if (record['id'] != null) {
+                todayAttendanceIds.add(record['id'] as String);
+              }
+            }
           }
         }
+
+        // Cargar logros de HOY usando los attendance_ids del día actual
+        if (todayAttendanceIds.isNotEmpty) {
+          try {
+            final todayAchRes = await Supabase.instance.client
+                .from('student_achievements')
+                .select('*, achievements(*)')
+                .inFilter('attendance_id', todayAttendanceIds);
+
+            // Deduplicar por achievement_id en caso de múltiples attendance del mismo día
+            final seen = <String>{};
+            final deduped = <dynamic>[];
+            for (final row in (todayAchRes as List<dynamic>)) {
+              final achId = row['achievement_id'] as String?;
+              if (achId != null && !seen.contains(achId)) {
+                seen.add(achId);
+                deduped.add(row);
+              }
+            }
+            if (mounted) setState(() => _todayAchievements = deduped);
+          } catch (e) {
+            print('Error cargando logros de hoy: $e');
+          }
+        }
+
+        if (mounted) setState(() {});
       }
     } catch (e) {
       if (mounted) {
@@ -113,9 +156,13 @@ class _StudentDashboardState extends State<StudentDashboard> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
+              // 🔐 Pedir confirmación antes de cerrar sesión
+              final confirmed = await DialogUtils.showLogoutDialog(context);
+              if (!confirmed) return;
+
               // 🧹 Limpieza al cerrar sesión
               await MeetingCleanupService.cleanupActiveMeeting();
-              WindowService().terminateSecondaryWindows();
+              await WindowService().terminateSecondaryWindows();
 
               await Supabase.instance.client.auth.signOut();
               if (context.mounted) {
@@ -152,6 +199,9 @@ class _StudentDashboardState extends State<StudentDashboard> {
                       },
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  _buildTodayStatus(),
+                  const SizedBox(height: 10),
                   _buildSectionTitle('Clases Activas'),
                   if (_activeMeetings == null || _activeMeetings!.isEmpty)
                     const Card(
@@ -164,67 +214,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
                     ..._activeMeetings!.map(
                       (meeting) => _buildMeetingCard(meeting),
                     ),
-
-                  const SizedBox(height: 20),
-                  _buildSectionTitle('Mis Logros Recientes'),
-                  if (_achievements == null || _achievements!.isEmpty)
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Text(
-                          'Aún no tienes logros. ¡Sigue esforzándote!',
-                        ),
-                      ),
-                    )
-                  else
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            childAspectRatio: 0.8,
-                          ),
-                      itemCount: _achievements!.length,
-                      itemBuilder: (context, index) {
-                        final achievementData = _achievements![index];
-                        final achievement = achievementData['achievements'];
-                        final date = DateTime.parse(
-                          achievementData['unlocked_at'],
-                        );
-
-                        return Card(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                achievement['icon'] ?? '🏆',
-                                style: const TextStyle(fontSize: 30),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                achievement['name'],
-                                textAlign: TextAlign.center,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                DateFormat('dd/MM').format(date),
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  
                   const SizedBox(height: 20),
                   _buildSectionTitle('Mi Horario Semanal'),
                   const SizedBox(height: 10),
@@ -293,6 +282,160 @@ class _StudentDashboardState extends State<StudentDashboard> {
       ),
     );
   }
+
+  Widget _buildTodayStatus() {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: _isAttendedToday
+              ? [const Color(0xFF1565C0), const Color(0xFF0288D1)]
+              : [const Color(0xFF424242), const Color(0xFF616161)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: (_isAttendedToday ? Colors.blue : Colors.grey).withOpacity(0.4),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Encabezado
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.today_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Text(
+                  'Mi Estado de Hoy',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // Estado de asistencia
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _isAttendedToday ? Icons.check_circle_rounded : Icons.schedule_rounded,
+                    color: _isAttendedToday ? const Color(0xFF69F0AE) : Colors.orangeAccent,
+                    size: 26,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _isAttendedToday
+                          ? '¡Asistencia registrada para hoy!'
+                          : 'Aún no asistes a clase hoy',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Logros de hoy
+            if (_isAttendedToday && _todayAchievements.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  const Text('⭐', style: TextStyle(fontSize: 16)),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'Logros obtenidos hoy:',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: _todayAchievements.map((achData) {
+                  // Los datos pueden estar anidados en 'achievements' o directamente
+                  final Map<String, dynamic>? ach =
+                      achData['achievements'] as Map<String, dynamic>?;
+                  final String icon = ach?['icon'] ?? achData['icon'] ?? '🏆';
+                  final String name = ach?['name'] ?? achData['name'] ?? 'Logro';
+
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(30),
+                      border: Border.all(color: Colors.white.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(icon, style: const TextStyle(fontSize: 20)),
+                        const SizedBox(width: 8),
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ] else if (_isAttendedToday) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Sin logros asignados aún en esta sesión.',
+                style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 13),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
 
   Widget _buildMeetingCard(dynamic meeting) {
     return Card(
