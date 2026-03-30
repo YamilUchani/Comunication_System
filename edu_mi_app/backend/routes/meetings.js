@@ -570,6 +570,18 @@ router.post('/:meetingId/end', authenticateUser, async (req, res, next) => {
             }
         }
 
+        // Emitir evento en tiempo real para desconectar a los estudiantes
+        try {
+            await supabase.channel(`meeting:${meetingId}`).send({
+                type: 'broadcast',
+                event: 'meeting_ended',
+                payload: { message: 'La clase ha finalizado' }
+            });
+            logger.info(`📡 Evento 'meeting_ended' emitido para reunión ${meetingId}`);
+        } catch (err) {
+            logger.warn(`⚠️ No se pudo emitir evento 'meeting_ended' para ${meetingId}`, err);
+        }
+
         logger.info(`✅ Reunión ${meetingId} finalizada correctamente.`);
 
         res.json({

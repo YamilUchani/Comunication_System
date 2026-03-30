@@ -91,6 +91,21 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
             }
           },
         )
+        .onBroadcast(
+          event: 'meeting_ended',
+          callback: (payload) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('La clase ha sido finalizada por el maestro.'),
+                  backgroundColor: Colors.red,
+                  duration: Duration(seconds: 3),
+                ),
+              );
+              Future.delayed(const Duration(seconds: 2), () => exit(0));
+            }
+          },
+        )
         .subscribe();
   }
 
