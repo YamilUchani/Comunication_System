@@ -395,74 +395,188 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
     final isCreator =
         meeting['creatorId'] == Supabase.instance.client.auth.currentUser?.id;
     final isVirtual = meeting['isVirtual'] == true;
+    final isPrivate = (meeting['meeting_type'] == 'private') || (meeting['meetingType'] == 'private');
+    
+    final iconData = isPrivate ? Icons.group : Icons.school;
+    final colorTheme = isPrivate ? Colors.orange : Colors.blue;
+    final modeText = isPrivate ? 'Clase Grupal' : 'Clase Magistral';
 
     return Card(
-      margin: const EdgeInsets.all(8),
-      color: Colors.teal.shade50,
-      child: ListTile(
-        leading: const CircleAvatar(
-          backgroundColor: Colors.teal,
-          child: Icon(Icons.video_camera_front, color: Colors.white),
+      elevation: 4,
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          gradient: LinearGradient(
+            colors: [colorTheme.shade50, Colors.white],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          border: Border.all(color: colorTheme.withOpacity(0.3), width: 1),
         ),
-        title: Text(meeting['title'] ?? 'Reunión'),
-        subtitle: Text(
-          'Iniciada por: ${meeting['creatorName']}\n${meeting['description'] ?? ""}',
-        ),
-        isThreeLine: true,
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ElevatedButton(
-              onPressed: () => _joinMeeting(meeting),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
-              child: const Text('Unirse'),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: colorTheme,
+              child: Icon(iconData, color: Colors.white),
             ),
-            if (isCreator && !isVirtual) ...[
-              const SizedBox(width: 8),
-              IconButton(
-                icon: const Icon(Icons.stop_circle, color: Colors.red),
-                tooltip: 'Finalizar Clase',
-                onPressed: () => _showEndMeetingDialog(meeting),
-              ),
-            ],
-          ],
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    meeting['title'] ?? 'Reunión',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: colorTheme.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    modeText,
+                    style: TextStyle(
+                      color: colorTheme.shade700,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                Text('Iniciada por: ${meeting['creatorName']}'),
+                if (meeting['description'] != null && meeting['description'].toString().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4.0),
+                    child: Text(
+                      meeting['description'],
+                      style: const TextStyle(fontStyle: FontStyle.italic, fontSize: 13),
+                    ),
+                  ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Colors.green,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'En curso ahora',
+                      style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            isThreeLine: true,
+            trailing: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ElevatedButton(
+                      onPressed: () => _joinMeeting(meeting),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: colorTheme,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      ),
+                      child: const Text('Entrar'),
+                    ),
+                    if (isCreator && !isVirtual) ...[
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.stop_circle, color: Colors.red, size: 28),
+                        tooltip: 'Finalizar Clase',
+                        onPressed: () => _showEndMeetingDialog(meeting),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
   void _showEndMeetingDialog(dynamic meeting) {
+    String confirmationText = '';
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('¿Finalizar Clase?'),
-        content: Text(
-          'Esto cerrará la sesión de "${meeting['title']}" para todos los participantes.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                await ApiService.endMeeting(meeting['id']);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Clase finalizada')),
-                );
-                _loadActiveMeetings();
-              } catch (e) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text('Error: $e')));
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Finalizar'),
-          ),
-        ],
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          final isEnabled = confirmationText == 'FINALIZAR';
+          return AlertDialog(
+            title: const Text('⚠️ Cuidado: Finalizar Clase', style: TextStyle(color: Colors.red)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Vas a destruir la sesión de "${meeting['title']}". Todos los participantes serán expulsados inmediatamente.',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                const Text('Escribe la palabra FINALIZAR en mayúsculas para confirmar:'),
+                const SizedBox(height: 8),
+                TextField(
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'FINALIZAR',
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      confirmationText = value.trim();
+                    });
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+              ),
+              ElevatedButton(
+                onPressed: isEnabled ? () async {
+                  try {
+                    await ApiService.endMeeting(meeting['id']);
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Clase finalizada exitosamente')),
+                    );
+                    _loadActiveMeetings();
+                  } catch (e) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('Error: $e')));
+                  }
+                } : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Destruir Clase'),
+              ),
+            ],
+          );
+        }
       ),
     );
   }
@@ -905,46 +1019,95 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
 
   void _showCreateClassDialog(BuildContext context) {
     final titleController = TextEditingController();
+    String selectedType = 'master';
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Iniciar Nueva Clase'),
-        content: TextField(
-          controller: titleController,
-          decoration: const InputDecoration(
-            labelText: 'Título de la clase',
-            hintText: 'Ej: Matemáticas Avanzadas',
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Iniciar Nueva Clase'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: titleController,
+                decoration: const InputDecoration(
+                  labelText: 'Título de la clase',
+                  hintText: 'Ej: Matemáticas Avanzadas',
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Tipo de Clase:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(
+                    value: 'master',
+                    label: Text('Magistral'),
+                    icon: Icon(Icons.school, size: 18),
+                  ),
+                  ButtonSegment(
+                    value: 'private',
+                    label: Text('Grupal'),
+                    icon: Icon(Icons.group, size: 18),
+                  ),
+                ],
+                selected: {selectedType},
+                onSelectionChanged: (Set<String> newSelection) {
+                  setDialogState(() {
+                    selectedType = newSelection.first;
+                  });
+                },
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                final meeting = await ApiService.createMeeting(
-                  titleController.text,
-                  'Clase creada por maestro',
-                );
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  // 🏫 Obtener el grupo del maestro para asignarlo a la reunión magistral
+                  List<String>? resolvedAllowedGroups;
+                  final user = Supabase.instance.client.auth.currentUser;
+                  if (selectedType == 'master' && user != null) {
+                    final profile = await Supabase.instance.client
+                        .from('profiles')
+                        .select('group_name')
+                        .eq('user_id', user.id)
+                        .single();
+                    final groupName = profile['group_name'];
+                    if (groupName != null && groupName.toString().isNotEmpty) {
+                      resolvedAllowedGroups = [groupName.toString()];
+                    }
+                  }
 
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  _joinMeeting(meeting);
+                  final meeting = await ApiService.createMeeting(
+                    titleController.text,
+                    'Clase creada por maestro',
+                    meetingType: selectedType,
+                    allowedGroups: resolvedAllowedGroups,
+                  );
+
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    _joinMeeting(meeting);
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('Error: $e')));
+                  }
                 }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(SnackBar(content: Text('Error: $e')));
-                }
-              }
-            },
-            child: const Text('Iniciar'),
-          ),
-        ],
+              },
+              child: const Text('Iniciar'),
+            ),
+          ],
+        ),
       ),
     );
   }

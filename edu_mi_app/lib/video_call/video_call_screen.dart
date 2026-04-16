@@ -53,7 +53,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
   List<dynamic> _studentsList = [];
   Timer? _studentsTimer;
   bool _whiteboardOpen = false; // 🎨 Trackea si la pizarra está abierta
-  RealtimeChannel? _notificationsChannel; // 📡 Canal para notificaciones en tiempo real
   
   // 🫧 Bubble mode para maestro/admin (minimizar ventana)
   bool _isBubbleMode = false;
@@ -123,7 +122,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
           );
         });
         _updateUsersList();
-        _subscribeToStudentCalls();
       }
     } catch (e) {
       if (mounted) {
@@ -131,109 +129,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
           SnackBar(content: Text('Error al inicializar la llamada: $e')),
         );
       }
-    }
-  }
-
-  /// 📡 Suscribirse a llamadas de estudiantes via Supabase Realtime
-  void _subscribeToStudentCalls() {
-    final meetingId = widget.meetingId;
-    if (meetingId == null) return;
-
-    _notificationsChannel = Supabase.instance.client
-        .channel('meeting:$meetingId')
-        .onBroadcast(
-          event: 'student_calling',
-          callback: (payload) {
-            final studentName = payload['student_name'] as String? ?? 'Un estudiante';
-            if (mounted) {
-              _showStudentCallingNotification(studentName);
-            }
-          },
-        )
-        .subscribe();
-  }
-
-  /// 🔔 Mostrar notificación tipo banner cuando un estudiante llama
-  void _showStudentCallingNotification(String studentName) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: Colors.indigo[700],
-        duration: const Duration(seconds: 6),
-        content: Row(
-          children: [
-            const Icon(Icons.phone_in_talk, color: Colors.white, size: 24),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                '📞 $studentName quiere entrar a la clase\nRevisa la lista de miembros para unirlo.',
-                style: const TextStyle(color: Colors.white, fontSize: 13),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 🚫 Expulsar a un estudiante del canal via Realtime
-  Future<void> _kickStudent(dynamic student) async {
-    final meetingId = widget.meetingId;
-    if (meetingId == null) return;
-
-    final studentName = student['name'] ?? 'Estudiante';
-    final userId = student['user_id'] as String?;
-    if (userId == null) return;
-
-    try {
-      await Supabase.instance.client
-          .channel('meeting:$meetingId')
-          .sendBroadcastMessage(
-            event: 'kick_student',
-            payload: {'user_id': userId},
-          );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('⛔ $studentName ha sido expulsado'),
-            backgroundColor: Colors.red[700],
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      print('❌ Error al expulsar estudiante: $e');
-    }
-  }
-
-  /// ✅ Admitir a un estudiante a la clase via Realtime
-  Future<void> _admitStudent(dynamic student) async {
-    final meetingId = widget.meetingId;
-    if (meetingId == null) return;
-
-    final studentName = student['name'] ?? 'Estudiante';
-    final userId = student['user_id'] as String?;
-    if (userId == null) return;
-
-    try {
-      await Supabase.instance.client
-          .channel('meeting:$meetingId')
-          .sendBroadcastMessage(
-            event: 'admit_student',
-            payload: {'user_id': userId},
-          );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✅ $studentName ha sido admitido a la clase'),
-            backgroundColor: Colors.green[700],
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      print('❌ Error al admitir estudiante: $e');
     }
   }
 
@@ -301,6 +196,12 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
       }
     } catch (e) {
       print('⚠️ Error al obtener estados de alumnos: $e');
+      // Mostrar lista vacía con mensaje en lugar de quedarse en 'Obteniendo lista...'
+      if (mounted) {
+        setState(() {
+          _studentsList = [{'id': '__error__', 'name': 'Error al cargar lista', 'status': 'absent'}];
+        });
+      }
     }
   }
 
@@ -575,10 +476,25 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
                             ),
                             Expanded(
                               child: _studentsList.isEmpty
-                                ? const Center(
-                                    child: Text(
-                                      'Obteniendo lista...',
-                                      style: TextStyle(color: Colors.white54),
+                                ? Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        const CircularProgressIndicator(color: Colors.tealAccent, strokeWidth: 2),
+                                        const SizedBox(height: 12),
+                                        const Text(
+                                          'Cargando estudiantes...',
+                                          style: TextStyle(color: Colors.white54),
+                                        ),
+                                        if (widget.meetingId == null)
+                                          const Padding(
+                                            padding: EdgeInsets.only(top: 8),
+                                            child: Text(
+                                              'Sin ID de reunión',
+                                              style: TextStyle(color: Colors.redAccent, fontSize: 11),
+                                            ),
+                                          ),
+                                      ],
                                     ),
                                   )
                                 : ListView.builder(
@@ -607,9 +523,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
                                           statusText = 'Ausente';
                                       }
 
-                                      final canKick = status == 'in_call' || status == 'waiting';
-                                      final canAdmit = status == 'waiting';
-
                                       return ListTile(
                                         leading: CircleAvatar(
                                           backgroundColor: Colors.white10,
@@ -636,27 +549,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
                                             ),
                                           ],
                                         ),
-                                        trailing: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            if (canAdmit)
-                                              IconButton(
-                                                icon: const Icon(Icons.check_circle, color: Colors.greenAccent),
-                                                tooltip: 'Admitir a la clase',
-                                                onPressed: () => _admitStudent(student),
-                                              ),
-                                            if (canKick)
-                                              IconButton(
-                                                icon: const Icon(Icons.person_remove, color: Colors.redAccent),
-                                                tooltip: 'Expulsar',
-                                                onPressed: () => _kickStudent(student),
-                                              ),
-                                            IconButton(
-                                              icon: const Icon(Icons.assignment_turned_in, color: Colors.tealAccent),
-                                              tooltip: 'Evaluar Estudiante',
-                                              onPressed: () => _showAttendanceAndAchievementsDialog(student),
-                                            ),
-                                          ],
+                                        trailing: IconButton(
+                                          icon: const Icon(Icons.assignment_turned_in, color: Colors.tealAccent),
+                                          tooltip: 'Evaluar Estudiante',
+                                          onPressed: () => _showAttendanceAndAchievementsDialog(student),
                                         ),
                                       );
                                     },
@@ -797,9 +693,17 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
   }
 
   void _showAttendanceAndAchievementsDialog(dynamic student) async {
-    final studentId = student['user_id'];
+    // ✅ El backend retorna 'id' (que es el user_id del estudiante), NO 'user_id'
+    final studentId = student['id'] ?? student['user_id'];
     final studentName = student['name'] ?? 'Estudiante';
     final todayStr = DateTime.now().toIso8601String().split('T')[0];
+    
+    if (studentId == null || studentId == '__error__') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo identificar al estudiante')),
+      );
+      return;
+    }
 
     showDialog(
       context: context,
@@ -935,7 +839,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
   @override
   void dispose() {
     _studentsTimer?.cancel();
-    _notificationsChannel?.unsubscribe();
     if (Platform.isWindows) {
       windowManager.removeListener(this);
     }

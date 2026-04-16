@@ -894,29 +894,21 @@ router.get('/:meetingId/students-status', authenticateUser, async (req, res, nex
     try {
         const { meetingId } = req.params;
 
-        // 1. Obtener la reunión para saber el grupo
+        // 1. Obtener la reunión para saber el grupo, usuarios permitidos y el creador
         const { data: meeting, error: meetingError } = await supabase
             .from('meetings')
-            .select('allowed_groups')
+            .select('allowed_groups, allowed_users, creator_id, meeting_type')
             .eq('id', meetingId)
             .single();
 
-        if (meetingError || !meeting || !meeting.allowed_groups || meeting.allowed_groups.length === 0) {
-            return res.status(404).json({ error: { message: 'Reunión o grupo no encontrado' } });
+        if (meetingError || !meeting) {
+            return res.status(404).json({ error: { message: 'Reunión no encontrada' } });
         }
 
-        const groupName = meeting.allowed_groups[0];
+        const groups = meeting.allowed_groups || [];
+        const users = meeting.allowed_users || [];
 
-        // 2. Obtener TODOS los estudiantes de ese grupo
-        const { data: students, error: profilesError } = await supabase
-            .from('profiles')
-            .select('user_id, full_name, role')
-            .eq('group_name', groupName)
-            .eq('role', 'student');
-
-        if (profilesError) throw profilesError;
-
-        // 3. Obtener el estado actual en meeting_participants
+        // 2. Obtener el estado actual en meeting_participants
         const { data: participants, error: participantsError } = await supabase
             .from('meeting_participants')
             .select('user_id, joined_at, last_heartbeat, left_at')
@@ -924,9 +916,93 @@ router.get('/:meetingId/students-status', authenticateUser, async (req, res, nex
 
         if (participantsError) throw participantsError;
 
-        // 4. Mapear estado
+        let students = [];
+
+        // 3. Obtener perfiles dependiendo de las restricciones de la reunión
+        if (groups.length > 0) {
+            // ✅ Hay grupos asignados: traer todos los estudiantes de esos grupos
+            const { data: groupStudents } = await supabase
+                .from('profiles')
+                .select('user_id, full_name, role')
+                .in('group_name', groups)
+                .eq('role', 'student');
+            
+            if (groupStudents) students.push(...groupStudents);
+        }
+
+        if (users.length > 0) {
+            // ✅ Hay usuarios específicos: traer solo los estudiantes de esa lista
+            const { data: userStudents } = await supabase
+                .from('profiles')
+                .select('user_id, full_name, role')
+                .in('user_id', users)
+                .eq('role', 'student');
+            
+            if (userStudents) {
+                const existingIds = new Set(students.map(s => s.user_id));
+                userStudents.forEach(u => {
+                    if (!existingIds.has(u.user_id)) {
+                        students.push(u);
+                    }
+                });
+            }
+        }
+
+        if (groups.length === 0 && users.length === 0) {
+            // ⚠️ Reunión magistral sin grupos asignados (caso más común).
+            // Buscar el grupo del CREADOR de la reunión y traer todos sus estudiantes.
+            logger.info(`[students-status] Reunión ${meetingId} sin grupos asignados. Buscando grupo del creador ${meeting.creator_id}`);
+
+            const { data: creatorProfile } = await supabase
+                .from('profiles')
+                .select('group_name, role')
+                .eq('user_id', meeting.creator_id)
+                .single();
+
+            if (creatorProfile && creatorProfile.group_name) {
+                // El creador es maestro → traer todos los estudiantes de su grupo
+                logger.info(`[students-status] Creador tiene grupo: ${creatorProfile.group_name}`);
+                const { data: groupStudents } = await supabase
+                    .from('profiles')
+                    .select('user_id, full_name, role')
+                    .eq('group_name', creatorProfile.group_name)
+                    .eq('role', 'student');
+
+                if (groupStudents && groupStudents.length > 0) {
+                    students = groupStudents;
+                    logger.info(`[students-status] Encontrados ${students.length} estudiantes del grupo ${creatorProfile.group_name}`);
+                } else {
+                    // Fallback: mostrar los participantes que ya se unieron (solo estudiantes)
+                    logger.warn(`[students-status] No se encontraron estudiantes en el grupo. Usando participantes activos.`);
+                    if (participants && participants.length > 0) {
+                        const userIdsInMeeting = participants.map(p => p.user_id);
+                        const { data: participantProfiles } = await supabase
+                            .from('profiles')
+                            .select('user_id, full_name, role')
+                            .in('user_id', userIdsInMeeting)
+                            .eq('role', 'student');
+                        if (participantProfiles) students = participantProfiles;
+                    }
+                }
+            } else {
+                // El creador no tiene grupo (ej: admin): mostrar participantes activos estudiantes
+                logger.warn(`[students-status] Creador ${meeting.creator_id} no tiene grupo. Mostrando participantes.`);
+                if (participants && participants.length > 0) {
+                    const userIdsInMeeting = participants.map(p => p.user_id);
+                    const { data: participantProfiles } = await supabase
+                        .from('profiles')
+                        .select('user_id, full_name, role')
+                        .in('user_id', userIdsInMeeting)
+                        .eq('role', 'student');
+                    if (participantProfiles) students = participantProfiles;
+                }
+            }
+        }
+
+        // 4. Mapear estado de cada estudiante
+        const safeParticipants = participants || [];
         const result = students.map(student => {
-            const participantObj = participants.find(p => p.user_id === student.user_id);
+            const participantObj = safeParticipants.find(p => p.user_id === student.user_id);
             let state = 'absent';
 
             if (participantObj) {
@@ -946,6 +1022,7 @@ router.get('/:meetingId/students-status', authenticateUser, async (req, res, nex
             };
         });
 
+        logger.info(`[students-status] Retornando ${result.length} estudiantes para reunión ${meetingId}`);
         res.json({ students: result });
     } catch (error) {
         next(error);
