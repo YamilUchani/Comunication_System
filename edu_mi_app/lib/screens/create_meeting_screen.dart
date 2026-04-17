@@ -3,9 +3,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/meeting_service.dart';
 import '../video_call/video_call_screen.dart';
 
-/// Pantalla para crear una nueva reunión usando el backend
+import '../services/api_service.dart';
+
+/// Pantalla para crear una nueva reunión o programar un horario
 class CreateMeetingScreen extends StatefulWidget {
-  const CreateMeetingScreen({super.key});
+  final bool isScheduleMode;
+  
+  const CreateMeetingScreen({super.key, this.isScheduleMode = false});
 
   @override
   State<CreateMeetingScreen> createState() => _CreateMeetingScreenState();
@@ -24,6 +28,11 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
   List<dynamic> _studentsList = [];
   final Set<String> _selectedStudentIds = {};
   bool _isLoadingStudents = true;
+
+  // Variables para modo Horario (Schedule)
+  int _selectedDay = 1;
+  TimeOfDay _startTime = const TimeOfDay(hour: 8, minute: 0);
+  TimeOfDay _endTime = const TimeOfDay(hour: 9, minute: 0);
 
   @override
   void initState() {
@@ -88,28 +97,50 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
     });
 
     try {
-      final meeting = await _meetingService.createMeeting(
-        channelName: _channelController.text.trim(),
-        title: _titleController.text.trim(),
-        description: _descriptionController.text.trim(),
-        meetingType: _selectedMeetingType,
-        allowedUsers: _selectedStudentIds.toList(), // 🔥 Enviar estudiantes seleccionados
-      );
+      if (widget.isScheduleMode) {
+        // MODO HORARIO
+        final startStr = '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}:00';
+        final endStr = '${_endTime.hour.toString().padLeft(2, '0')}:${_endTime.minute.toString().padLeft(2, '0')}:00';
 
-      if (!mounted) return;
+        await ApiService.createSchedule(
+          subject: _titleController.text.trim(),
+          dayOfWeek: _selectedDay,
+          startTime: startStr,
+          endTime: endStr,
+          scheduleType: _selectedMeetingType,
+          allowedUsers: _selectedStudentIds.toList(),
+        );
 
-      // Navegar a la pantalla de videollamada con el token del backend
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => VideoCallScreen(
-            channelName: meeting['channelName'],
-            token: meeting['token'],
-            userName: 'Usuario', // Puedes pasar el nombre real del usuario
-            meetingId: meeting['id'], // 🆔 Pasar ID de la reunión
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Horario programado con éxito'), backgroundColor: Colors.green),
+        );
+        Navigator.pop(context); // Volver al dashboard y el loader de _loadSchedules tomará control
+      } else {
+        // MODO REUNIÓN INMEDIATA
+        final meeting = await _meetingService.createMeeting(
+          channelName: _channelController.text.trim(),
+          title: _titleController.text.trim(),
+          description: _descriptionController.text.trim(),
+          meetingType: _selectedMeetingType,
+          allowedUsers: _selectedStudentIds.toList(),
+        );
+
+        if (!mounted) return;
+
+        // Navegar a la pantalla de videollamada
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => VideoCallScreen(
+              channelName: meeting['channelName'],
+              token: meeting['token'],
+              userName: 'Usuario',
+              meetingId: meeting['id'],
+            ),
           ),
-        ),
-      );
+        );
+      }
     } catch (e) {
       if (!mounted) return;
 
@@ -131,56 +162,101 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Crear Reunión')),
+      appBar: AppBar(title: Text(widget.isScheduleMode ? 'Programar Horario' : 'Crear Reunión')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Form(
           key: _formKey,
           child: ListView(
             children: [
-              TextFormField(
-                controller: _channelController,
-                decoration: const InputDecoration(
-                  labelText: 'Nombre del Canal',
-                  hintText: 'ejemplo: mi-reunion-123',
-                  prefixIcon: Icon(Icons.link),
+              if (!widget.isScheduleMode) ...[
+                TextFormField(
+                  controller: _channelController,
+                  decoration: const InputDecoration(
+                    labelText: 'Nombre del Canal',
+                    hintText: 'ejemplo: mi-reunion-123',
+                    prefixIcon: Icon(Icons.link),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Por favor ingresa un nombre para el canal';
+                    }
+                    if (value.contains(' ')) {
+                      return 'El nombre del canal no puede contener espacios';
+                    }
+                    return null;
+                  },
                 ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Ingresa un nombre de canal';
-                  }
-                  final regex = RegExp(r'^[a-zA-Z0-9_-]{1,64}$');
-                  if (!regex.hasMatch(value)) {
-                    return 'Solo letras, números, - y _ (1-64 caracteres)';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
+              
               TextFormField(
                 controller: _titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Título de la Reunión',
-                  hintText: 'ejemplo: Clase de Matemáticas',
-                  prefixIcon: Icon(Icons.title),
+                decoration: InputDecoration(
+                  labelText: widget.isScheduleMode ? 'Materia/Título' : 'Título de la Reunión',
+                  prefixIcon: const Icon(Icons.title),
                 ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Ingresa un título';
-                  }
-                  return null;
-                },
+                validator: (value) => 
+                    value == null || value.isEmpty ? 'Requerido' : null,
               ),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Descripción (opcional)',
-                  hintText: 'Detalles de la reunión',
-                  prefixIcon: Icon(Icons.description),
+              
+              if (!widget.isScheduleMode) ...[
+                TextFormField(
+                  controller: _descriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Descripción (Opcional)',
+                    prefixIcon: Icon(Icons.description),
+                  ),
+                  maxLines: 3,
                 ),
-                maxLines: 3,
-              ),
+                const SizedBox(height: 24),
+              ],
+
+              if (widget.isScheduleMode) ...[
+                DropdownButtonFormField<int>(
+                  value: _selectedDay,
+                  items: const [
+                    DropdownMenuItem(value: 1, child: Text('Lunes')),
+                    DropdownMenuItem(value: 2, child: Text('Martes')),
+                    DropdownMenuItem(value: 3, child: Text('Miércoles')),
+                    DropdownMenuItem(value: 4, child: Text('Jueves')),
+                    DropdownMenuItem(value: 5, child: Text('Viernes')),
+                    DropdownMenuItem(value: 6, child: Text('Sábado')),
+                    DropdownMenuItem(value: 0, child: Text('Domingo')),
+                  ],
+                  onChanged: (val) => setState(() => _selectedDay = val!),
+                  decoration: const InputDecoration(labelText: 'Día de la semana', prefixIcon: Icon(Icons.calendar_today)),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ListTile(
+                        leading: const Icon(Icons.access_time),
+                        title: const Text('Inicio'),
+                        subtitle: Text(_startTime.format(context)),
+                        onTap: () async {
+                          final picked = await showTimePicker(context: context, initialTime: _startTime);
+                          if (picked != null) setState(() => _startTime = picked);
+                        },
+                      ),
+                    ),
+                    Expanded(
+                      child: ListTile(
+                        leading: const Icon(Icons.access_time_filled),
+                        title: const Text('Fin'),
+                        subtitle: Text(_endTime.format(context)),
+                        onTap: () async {
+                          final picked = await showTimePicker(context: context, initialTime: _endTime);
+                          if (picked != null) setState(() => _endTime = picked);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+              ],
               const SizedBox(height: 16),
               const Text('Tipo de Clase:', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
@@ -290,15 +366,20 @@ class _CreateMeetingScreenState extends State<CreateMeetingScreen> {
               ],
               
               const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _createMeeting,
-                child: _isLoading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Crear Reunión'),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _createMeeting,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.all(16),
+                  ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Text(
+                          widget.isScheduleMode ? 'Programar Horario' : 'Crear Reunión',
+                          style: const TextStyle(fontSize: 16),
+                        ),
+                ),
               ),
             ],
           ),

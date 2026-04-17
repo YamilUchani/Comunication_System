@@ -1144,6 +1144,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
           userRole: 'teacher', // 👨‍🏫 Identificar como maestro
           meetingId: joinData['id'], // 🆔 Pasar ID de la reunión
           authToken: session?.accessToken, // 🔑 Pasar token de autenticación
+          refreshToken: session?.refreshToken, // 🔄 Para restaurar sesión en proceso hijo
         );
 
         if (mounted) {
@@ -1178,7 +1179,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
     }
   }
 
-  void _showSchedulesManager(BuildContext context) {
+    void _showSchedulesManager(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -1198,21 +1199,11 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                       itemCount: _schedules!.length,
                       itemBuilder: (context, index) {
                         final schedule = _schedules![index];
-                        final days = [
-                          'Dom',
-                          'Lun',
-                          'Mar',
-                          'Mié',
-                          'Jue',
-                          'Vie',
-                          'Sáb',
-                        ];
+                        final days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
                         final dayName = days[schedule['day_of_week']];
                         return ListTile(
                           title: Text(schedule['subject']),
-                          subtitle: Text(
-                            '$dayName | ${schedule['start_time']} - ${schedule['end_time']}',
-                          ),
+                          subtitle: Text('$dayName | ${schedule['start_time']} - ${schedule['end_time']}'),
                           trailing: IconButton(
                             icon: const Icon(Icons.delete, color: Colors.red),
                             onPressed: () async {
@@ -1227,8 +1218,15 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                   ),
                 const Divider(),
                 ElevatedButton.icon(
-                  onPressed: () =>
-                      _showAddScheduleDialog(context, setDialogState),
+                  onPressed: () {
+                    Navigator.pop(context); // Cerrar el dialog de lista de horarios
+                    Navigator.push(
+                      context, 
+                      MaterialPageRoute(
+                        builder: (ctx) => const CreateMeetingScreen(isScheduleMode: true)
+                      )
+                    ).then((_) => _loadSchedules()); // Refrescar al regresar
+                  },
                   icon: const Icon(Icons.add),
                   label: const Text('Nuevo Horario'),
                 ),
@@ -1246,172 +1244,5 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
     );
   }
 
-  void _showAddScheduleDialog(
-    BuildContext context,
-    StateSetter parentSetState,
-  ) {
-    final subjectController = TextEditingController();
-    int selectedDay = 1;
-    TimeOfDay startTime = const TimeOfDay(hour: 8, minute: 0);
-    TimeOfDay endTime = const TimeOfDay(hour: 9, minute: 0);
-    String selectedType = 'master';
-    final Set<String> _selectedStudentIds = {};
-    
-    // Si queremos seleccionar todos por defecto:
-    if (_myStudents != null) {
-      _selectedStudentIds.addAll(_myStudents!.map((s) => s['user_id'] as String));
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Programar Nueva Clase'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: subjectController,
-                  decoration: const InputDecoration(
-                    labelText: 'Materia/Título',
-                  ),
-                ),
-                DropdownButtonFormField<int>(
-                  value: selectedDay,
-                  items: const [
-                    DropdownMenuItem(value: 1, child: Text('Lunes')),
-                    DropdownMenuItem(value: 2, child: Text('Martes')),
-                    DropdownMenuItem(value: 3, child: Text('Miércoles')),
-                    DropdownMenuItem(value: 4, child: Text('Jueves')),
-                    DropdownMenuItem(value: 5, child: Text('Viernes')),
-                    DropdownMenuItem(value: 6, child: Text('Sábado')),
-                    DropdownMenuItem(value: 0, child: Text('Domingo')),
-                  ],
-                  onChanged: (val) => setState(() => selectedDay = val!),
-                  decoration: const InputDecoration(labelText: 'Día'),
-                ),
-                ListTile(
-                  title: const Text('Hora Inicio'),
-                  trailing: Text(startTime.format(context)),
-                  onTap: () async {
-                    final picked = await showTimePicker(
-                      context: context,
-                      initialTime: startTime,
-                    );
-                    if (picked != null) setState(() => startTime = picked);
-                  },
-                ),
-                ListTile(
-                  title: const Text('Hora Fin'),
-                  trailing: Text(endTime.format(context)),
-                  onTap: () async {
-                    final picked = await showTimePicker(
-                      context: context,
-                      initialTime: endTime,
-                    );
-                    if (picked != null) setState(() => endTime = picked);
-                  },
-                ),
-                const SizedBox(height: 16),
-                const Text('Tipo de Clase Programada:', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(
-                      value: 'master',
-                      label: Text('Magistral'),
-                      icon: Icon(Icons.school, size: 18),
-                    ),
-                    ButtonSegment(
-                      value: 'private',
-                      label: Text('Privada/Grupal'),
-                      icon: Icon(Icons.group, size: 18),
-                    ),
-                  ],
-                  selected: {selectedType},
-                  onSelectionChanged: (Set<String> newSelection) {
-                    setState(() {
-                      selectedType = newSelection.first;
-                    });
-                  },
-                ),
-                if (selectedType == 'private' && _myStudents != null && _myStudents!.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  const Text('Alumnos Permitidos:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  Container(
-                    margin: const EdgeInsets.only(top: 8),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    constraints: const BoxConstraints(maxHeight: 200),
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: _myStudents!.length,
-                      itemBuilder: (context, index) {
-                        final student = _myStudents![index];
-                        final studentId = student['user_id'] as String;
-                        final isSelected = _selectedStudentIds.contains(studentId);
-                        return CheckboxListTile(
-                          dense: true,
-                          title: Text(student['full_name'] ?? 'Estudiante'),
-                          value: isSelected,
-                          onChanged: (bool? value) {
-                            setState(() {
-                              if (value == true) {
-                                _selectedStudentIds.add(studentId);
-                              } else {
-                                _selectedStudentIds.remove(studentId);
-                              }
-                            });
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                try {
-                  final startStr =
-                      '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}:00';
-                  final endStr =
-                      '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}:00';
-
-                  await ApiService.createSchedule(
-                    subject: subjectController.text,
-                    dayOfWeek: selectedDay,
-                    startTime: startStr,
-                    endTime: endStr,
-                    scheduleType: selectedType,
-                    allowedUsers: _selectedStudentIds.toList(),
-                  );
-
-                  if (context.mounted) {
-                    Navigator.pop(context);
-                    await _loadSchedules();
-                    parentSetState(() {});
-                  }
-                } catch (e) {
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(SnackBar(content: Text('Error: $e')));
-                }
-              },
-              child: const Text('Guardar'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // Se eliminó la pequeña _showAddScheduleDialog ya que ahora funciona a pantalla completa
 }

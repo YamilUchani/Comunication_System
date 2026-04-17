@@ -131,9 +131,7 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
 
     try {
       print('📡 Enviando señal student_calling (auto: $isAuto)');
-      await Supabase.instance.client
-          .channel('meeting:$meetingId')
-          .sendBroadcastMessage(
+      await _realtimeChannel?.sendBroadcastMessage(
             event: 'student_calling',
             payload: {
               'student_name': widget.userName,

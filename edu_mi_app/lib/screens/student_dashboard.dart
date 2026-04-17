@@ -573,6 +573,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
               userRole: 'student',
               meetingId: joinData['id'],
               authToken: session?.accessToken,
+              refreshToken: session?.refreshToken,
               isPrivateClass: true,
             );
           } else {
@@ -584,6 +585,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
               meetingTitle: meeting['title'] ?? 'Reunión',
               meetingId: joinData['id'],
               authToken: session?.accessToken,
+              refreshToken: session?.refreshToken,
               isPrivateClass: false,
             );
           }

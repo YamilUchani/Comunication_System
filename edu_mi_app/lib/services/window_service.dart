@@ -34,6 +34,7 @@ class WindowService {
     required String meetingTitle,
     String? meetingId,
     String? authToken,
+    String? refreshToken,
     bool isPrivateClass = false,
   }) async {
     final String executablePath = Platform.resolvedExecutable;
@@ -48,6 +49,7 @@ class WindowService {
       '--meetingTitle=$meetingTitle',
       if (meetingId != null) '--meetingId=$meetingId',
       if (authToken != null) '--authToken=$authToken',
+      if (refreshToken != null) '--refreshToken=$refreshToken',
       if (isPrivateClass) '--isPrivateClass=true',
     ];
 
@@ -98,6 +100,7 @@ class WindowService {
     String userRole = 'teacher', // 'student', 'teacher', 'admin'
     String? meetingId,
     String? authToken,
+    String? refreshToken,
     int uid = 0,
     int? windowWidth,
     int? windowHeight,
@@ -116,6 +119,7 @@ class WindowService {
       '--uid=$uid',
       if (meetingId != null) '--meetingId=$meetingId',
       if (authToken != null) '--authToken=$authToken',
+      if (refreshToken != null) '--refreshToken=$refreshToken',
       if (windowWidth != null) '--windowWidth=$windowWidth',
       if (windowHeight != null) '--windowHeight=$windowHeight',
       if (isPrivateClass) '--isPrivateClass=true',

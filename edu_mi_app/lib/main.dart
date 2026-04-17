@@ -75,6 +75,7 @@ Future<void> main(List<String> args) async {
     final uid = uidStr != null ? int.tryParse(uidStr) : null;
     final meetingId = _getArgValue(args, 'meetingId');
     final authToken = _getArgValue(args, 'authToken');
+    final refreshToken = _getArgValue(args, 'refreshToken');
     final meetingTitle = _getArgValue(args, 'meetingTitle');
     final windowWidthStr = _getArgValue(args, 'windowWidth');
     final windowHeightStr = _getArgValue(args, 'windowHeight');
@@ -85,6 +86,23 @@ Future<void> main(List<String> args) async {
     final appId = dotenv.env['AGORA_APP_ID'] ?? '';
     print('   - Modo: $mode');
     print('   - Agora App ID cargado: ${appId.isNotEmpty}');
+    
+    // 🔑 RESTAURAR SESIÓN SUPABASE en el proceso secundario
+    // Sin esto, Realtime no puede enviar/recibir mensajes (necesita sesión válida)
+    if (refreshToken != null) {
+      try {
+        // Supabase Flutter v2: setSession usa el refreshToken
+        await Supabase.instance.client.auth.setSession(refreshToken);
+        print('✅ [CHILD] Sesión de Supabase restaurada con refreshToken');
+      } catch (e) {
+        // El token podría estar expirado; continuar de todas formas
+        print('⚠️ [CHILD] No se pudo restaurar la sesión Supabase: $e');
+      }
+    } else if (authToken != null) {
+      print('⚠️ [CHILD] Solo authToken disponible, sin refreshToken — sesión limitada');
+    } else {
+      print('⚠️ [CHILD] Sin tokens — Realtime puede no funcionar correctamente');
+    }
 
     if (mode == 'pdf-viewer') {
       final pdfUrl = _getArgValue(args, 'pdfUrl');
