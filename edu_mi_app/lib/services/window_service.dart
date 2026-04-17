@@ -34,6 +34,7 @@ class WindowService {
     required String meetingTitle,
     String? meetingId,
     String? authToken,
+    bool isPrivateClass = false,
   }) async {
     final String executablePath = Platform.resolvedExecutable;
     
@@ -47,6 +48,7 @@ class WindowService {
       '--meetingTitle=$meetingTitle',
       if (meetingId != null) '--meetingId=$meetingId',
       if (authToken != null) '--authToken=$authToken',
+      if (isPrivateClass) '--isPrivateClass=true',
     ];
 
     print('🚀 Iniciando ventana secundaria de sala de espera...');

@@ -265,6 +265,8 @@ class ApiService {
     required String startTime,
     required String endTime,
     String? groupName,
+    String? scheduleType,
+    List<String>? allowedUsers,
   }) async {
     final utcData = _localToUtcSchedule(dayOfWeek, startTime, endTime);
     
@@ -277,6 +279,8 @@ class ApiService {
         'start_time': utcData['startTime'],
         'end_time': utcData['endTime'],
         'group_name': groupName,
+        'schedule_type': scheduleType ?? 'master',
+        'allowed_users': allowedUsers ?? [],
       }),
     );
 

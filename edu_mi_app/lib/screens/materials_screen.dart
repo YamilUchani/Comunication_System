@@ -518,6 +518,67 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
     );
   }
 
+  Future<void> _deleteMaterial(Map<String, dynamic> material) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminar Modelo'),
+        content: Text('¿Estás seguro de eliminar el modelo "${material['title']}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    try {
+      // 1. Opcional: Eliminar archivos vinculados del storage
+      final imageUrl = material['image_url'] as String?;
+      final pdfUrl = material['pdf_url'] as String?;
+
+      Future<void> removeStorageFile(String url) async {
+        try {
+          final uri = Uri.parse(url);
+          final pathSegments = uri.pathSegments;
+          final materialsIndex = pathSegments.indexOf('materials');
+          if (materialsIndex != -1 && materialsIndex + 1 < pathSegments.length) {
+            final storagePath = pathSegments.skip(materialsIndex + 1).join('/');
+            await _supabase.storage.from('materials').remove([storagePath]);
+          }
+        } catch (_) {}
+      }
+
+      if (imageUrl != null && imageUrl.isNotEmpty) await removeStorageFile(imageUrl);
+      if (pdfUrl != null && pdfUrl.isNotEmpty) await removeStorageFile(pdfUrl);
+
+      // 2. Eliminar de base de datos
+      await _supabase.from('materials').delete().eq('id', material['id']);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Modelo eliminado.')));
+        _loadAll(); // Recargar datos
+      }
+    } catch (e) {
+      print('❌ Error al eliminar el modelo: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
   // ─── VISTA ADMIN ─────────────────────────────────────────────
   Widget _buildAdminView() {
     if (_materials.isEmpty) {
@@ -540,18 +601,37 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
             clipBehavior: Clip.antiAlias,
             elevation: 4,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            child: Stack(
               children: [
-                Expanded(
-                  child: item['image_url'] != null && item['image_url'].toString().isNotEmpty
-                      ? Image.network(item['image_url'], fit: BoxFit.cover)
-                      : Container(color: Colors.grey[300], child: const Icon(Icons.image, size: 50, color: Colors.grey)),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: item['image_url'] != null && item['image_url'].toString().isNotEmpty
+                          ? Image.network(item['image_url'], fit: BoxFit.cover)
+                          : Container(color: Colors.grey[300], child: const Icon(Icons.image, size: 50, color: Colors.grey)),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      color: Colors.white,
+                      child: Text(item['title'] ?? 'Sin Título', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ),
+                  ],
                 ),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  color: Colors.white,
-                  child: Text(item['title'] ?? 'Sin Título', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), maxLines: 2, overflow: TextOverflow.ellipsis),
+                Positioned(
+                  top: 5,
+                  right: 5,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.8),
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                      onPressed: () => _deleteMaterial(item),
+                      tooltip: 'Eliminar modelo',
+                    ),
+                  ),
                 ),
               ],
             ),

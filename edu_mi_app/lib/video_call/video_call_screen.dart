@@ -53,6 +53,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
   List<dynamic> _studentsList = [];
   Timer? _studentsTimer;
   bool _whiteboardOpen = false; // 🎨 Trackea si la pizarra está abierta
+  RealtimeChannel? _meetingChannel; // 📡 Canal para señales de estudiantes (espera/admisión)
   
   // 🫧 Bubble mode para maestro/admin (minimizar ventana)
   bool _isBubbleMode = false;
@@ -77,6 +78,161 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
     // 📝 Registrar este controlador para limpieza en logout
     MeetingCleanupService.registerActiveController(controller);
     _initAgora();
+    _setupMeetingChannel();
+  }
+
+  void _setupMeetingChannel() {
+    final meetingId = widget.meetingId;
+    if (meetingId == null) return;
+
+    print('📡 Suscribiéndose al canal de reunión: meeting:$meetingId');
+    _meetingChannel = Supabase.instance.client
+        .channel('meeting:$meetingId')
+        .onBroadcast(
+          event: 'student_calling',
+          callback: (payload) {
+            final studentName = payload['student_name'] as String?;
+            if (studentName != null && mounted) {
+              _showStudentCallNotification(studentName);
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  void _showStudentCallNotification(String studentName) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.notifications_active, color: Colors.orange),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '🔔 $studentName está llamando desde la sala de espera',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        action: SnackBarAction(
+          label: 'VER LISTA',
+          textColor: Colors.tealAccent,
+          onPressed: () {
+            if (!_showStudents) _toggleStudents();
+          },
+        ),
+        duration: const Duration(seconds: 8),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.grey[900],
+      ),
+    );
+  }
+
+  Future<void> _admitStudent(Map<String, dynamic> student) async {
+    final meetingId = widget.meetingId;
+    final studentId = student['id']; // El backend retorna 'id' que es el user_id
+    final status = student['status'];
+
+    if (meetingId == null || studentId == null) return;
+
+    // Validación según sugerencia del usuario: solo admitir si está esperando
+    if (status != 'waiting') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ El estudiante no está en la sala de espera'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      print('✅ Admitiendo estudiante: ${student['name']} ($studentId)');
+      await _meetingChannel?.sendBroadcastMessage(
+        event: 'admit_student',
+        payload: {'user_id': studentId},
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ Admitiendo a ${student['name']}')),
+        );
+      }
+      
+      // Forzar recarga de lista para ver cambio de estado
+      _fetchStudentsStatus();
+    } catch (e) {
+      print('❌ Error al admitir estudiante: $e');
+    }
+  }
+
+  Future<void> _kickStudent(Map<String, dynamic> student) async {
+    final meetingId = widget.meetingId;
+    final studentId = student['id'];
+    final studentName = student['name'] ?? 'Estudiante';
+    final status = student['status'];
+    
+    if (meetingId == null || studentId == null) return;
+
+    // Validación según sugerencia del usuario: solo expulsar si está en la clase o esperando
+    if (status != 'waiting' && status != 'in_call') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ El estudiante no está en la clase o sala de espera'),
+            backgroundColor: Colors.grey,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Confirmación antes de expulsar
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Expulsar estudiante?'),
+        content: Text('¿Estás seguro de que deseas expulsar a $studentName de la clase?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Expulsar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      print('🚫 Expulsando estudiante: $studentName ($studentId)');
+      await _meetingChannel?.sendBroadcastMessage(
+        event: 'kick_student',
+        payload: {'user_id': studentId},
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('🚫 Has expulsado a $studentName'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      
+      // Forzar recarga de lista
+      _fetchStudentsStatus();
+    } catch (e) {
+      print('❌ Error al expulsar estudiante: $e');
+    }
   }
 
   @override
@@ -549,10 +705,30 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
                                             ),
                                           ],
                                         ),
-                                        trailing: IconButton(
-                                          icon: const Icon(Icons.assignment_turned_in, color: Colors.tealAccent),
-                                          tooltip: 'Evaluar Estudiante',
-                                          onPressed: () => _showAttendanceAndAchievementsDialog(student),
+                                        trailing: Wrap(
+                                          spacing: 4,
+                                          children: [
+                                            // Botón de ADMITIR (Siempre visible pero con validación interna)
+                                            IconButton(
+                                              icon: const Icon(Icons.person_add, color: Colors.orangeAccent),
+                                              tooltip: 'Admitir Estudiante',
+                                              onPressed: () => _admitStudent(student),
+                                            ),
+
+                                            // Botón de EVALUAR (Asistencia/Logros)
+                                            IconButton(
+                                              icon: const Icon(Icons.assignment_turned_in, color: Colors.tealAccent),
+                                              tooltip: 'Evaluar Estudiante',
+                                              onPressed: () => _showAttendanceAndAchievementsDialog(student),
+                                            ),
+
+                                            // Botón de EXPULSAR (Siempre visible pero con validación interna)
+                                            IconButton(
+                                              icon: const Icon(Icons.gavel, color: Colors.redAccent),
+                                              tooltip: 'Expulsar Estudiante',
+                                              onPressed: () => _kickStudent(student),
+                                            ),
+                                          ],
                                         ),
                                       );
                                     },
@@ -839,6 +1015,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
   @override
   void dispose() {
     _studentsTimer?.cancel();
+    _meetingChannel?.unsubscribe();
     if (Platform.isWindows) {
       windowManager.removeListener(this);
     }

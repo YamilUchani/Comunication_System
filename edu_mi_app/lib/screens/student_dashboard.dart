@@ -438,19 +438,106 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
 
   Widget _buildMeetingCard(dynamic meeting) {
+    final isPrivate = (meeting['meetingType'] == 'private') || (meeting['meeting_type'] == 'private');
+    final iconData = isPrivate ? Icons.group : Icons.school;
+    final colorTheme = isPrivate ? Colors.orange : Colors.blue;
+    final modeText = isPrivate ? 'Clase Grupal' : 'Clase Magistral';
+
     return Card(
       elevation: 4,
       margin: const EdgeInsets.only(bottom: 12),
-      child: ListTile(
-        leading: const CircleAvatar(
-          backgroundColor: Colors.green,
-          child: Icon(Icons.videocam, color: Colors.white),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          gradient: LinearGradient(
+            colors: [colorTheme.shade50, Colors.white],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          border: Border.all(color: colorTheme.withOpacity(0.3), width: 1),
         ),
-        title: Text(meeting['title']),
-        subtitle: Text('Profesor: ${meeting['creatorName'] ?? 'Maestro'}'),
-        trailing: ElevatedButton(
-          onPressed: () => _joinMeeting(meeting),
-          child: const Text('Unirse'),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: colorTheme,
+              child: Icon(iconData, color: Colors.white),
+            ),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    meeting['title'],
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: colorTheme.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    modeText,
+                    style: TextStyle(
+                      color: colorTheme.shade700,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                Text('👨‍🏫 Profesor: ${meeting['creatorName'] ?? 'Maestro'}'),
+                if (meeting['description'] != null && meeting['description'].toString().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4.0),
+                    child: Text(
+                      meeting['description'],
+                      style: const TextStyle(fontStyle: FontStyle.italic, fontSize: 13),
+                    ),
+                  ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Colors.green,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'En curso ahora',
+                      style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            isThreeLine: true,
+            trailing: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton(
+                  onPressed: () => _joinMeeting(meeting),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: colorTheme,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  ),
+                  child: const Text('Entrar a Clase'),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -474,18 +561,33 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
       final userName = profile['full_name'] ?? 'Estudiante';
 
-      if (mounted) {
-        print('🚀 Abriendo sala de espera en ventana secundaria...');
+        if (mounted) {
+          final isPrivate = (joinData['meetingType'] == 'private') || (meeting['meetingType'] == 'private') || (meeting['meeting_type'] == 'private');
 
-        await WindowService().openWaitingRoomWindow(
-          channelName: joinData['channelName'],
-          token: joinData['token'],
-          userName: userName,
-          meetingTitle: meeting['title'] ?? 'Reunión',
-          meetingId: joinData['id'],
-          authToken: session?.accessToken,
-        );
-      }
+          if (isPrivate) {
+            print('🚀 Abriendo videollamada directa (Clase Grupal) sin sala de espera...');
+            await WindowService().openVideoCallWindow(
+              channelName: joinData['channelName'],
+              token: joinData['token'],
+              userName: userName,
+              userRole: 'student',
+              meetingId: joinData['id'],
+              authToken: session?.accessToken,
+              isPrivateClass: true,
+            );
+          } else {
+            print('🚀 Abriendo sala de espera en ventana secundaria (Clase Magistral)...');
+            await WindowService().openWaitingRoomWindow(
+              channelName: joinData['channelName'],
+              token: joinData['token'],
+              userName: userName,
+              meetingTitle: meeting['title'] ?? 'Reunión',
+              meetingId: joinData['id'],
+              authToken: session?.accessToken,
+              isPrivateClass: false,
+            );
+          }
+        }
     } catch (e) {
       print('❌ Error uniéndose a reunión: $e');
       if (mounted) {

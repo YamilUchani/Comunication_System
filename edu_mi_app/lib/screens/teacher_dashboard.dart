@@ -7,7 +7,9 @@ import '../services/window_service.dart';
 import '../services/meeting_cleanup_service.dart';
 import '../utils/dialog_utils.dart';
 import 'materials_screen.dart';
+import 'materials_screen.dart';
 import '../widgets/simulador_button.dart';
+import 'create_meeting_screen.dart';
 
 class TeacherDashboard extends StatefulWidget {
   const TeacherDashboard({super.key});
@@ -198,7 +200,12 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                           'Iniciar Clase',
                           Icons.video_call,
                           Colors.teal,
-                          () => _showCreateClassDialog(context),
+                          () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const CreateMeetingScreen(),
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -1247,6 +1254,13 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
     int selectedDay = 1;
     TimeOfDay startTime = const TimeOfDay(hour: 8, minute: 0);
     TimeOfDay endTime = const TimeOfDay(hour: 9, minute: 0);
+    String selectedType = 'master';
+    final Set<String> _selectedStudentIds = {};
+    
+    // Si queremos seleccionar todos por defecto:
+    if (_myStudents != null) {
+      _selectedStudentIds.addAll(_myStudents!.map((s) => s['user_id'] as String));
+    }
 
     showDialog(
       context: context,
@@ -1299,6 +1313,64 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                     if (picked != null) setState(() => endTime = picked);
                   },
                 ),
+                const SizedBox(height: 16),
+                const Text('Tipo de Clase Programada:', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                      value: 'master',
+                      label: Text('Magistral'),
+                      icon: Icon(Icons.school, size: 18),
+                    ),
+                    ButtonSegment(
+                      value: 'private',
+                      label: Text('Privada/Grupal'),
+                      icon: Icon(Icons.group, size: 18),
+                    ),
+                  ],
+                  selected: {selectedType},
+                  onSelectionChanged: (Set<String> newSelection) {
+                    setState(() {
+                      selectedType = newSelection.first;
+                    });
+                  },
+                ),
+                if (selectedType == 'private' && _myStudents != null && _myStudents!.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  const Text('Alumnos Permitidos:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    constraints: const BoxConstraints(maxHeight: 200),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: _myStudents!.length,
+                      itemBuilder: (context, index) {
+                        final student = _myStudents![index];
+                        final studentId = student['user_id'] as String;
+                        final isSelected = _selectedStudentIds.contains(studentId);
+                        return CheckboxListTile(
+                          dense: true,
+                          title: Text(student['full_name'] ?? 'Estudiante'),
+                          value: isSelected,
+                          onChanged: (bool? value) {
+                            setState(() {
+                              if (value == true) {
+                                _selectedStudentIds.add(studentId);
+                              } else {
+                                _selectedStudentIds.remove(studentId);
+                              }
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1320,6 +1392,8 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                     dayOfWeek: selectedDay,
                     startTime: startStr,
                     endTime: endStr,
+                    scheduleType: selectedType,
+                    allowedUsers: _selectedStudentIds.toList(),
                   );
 
                   if (context.mounted) {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'dart:async';
+import 'dart:io';
 import 'video_call_controller.dart';
 import 'screen_sharing_windows.dart';
 
@@ -225,6 +226,7 @@ class _RemoteVideoWithFrozenDetectionState
           uid: widget.uid,
           renderMode: RenderModeType.renderModeFit, // 📏 NO recortar el video, mantener proporción
         ),
+        useFlutterTexture: Platform.isWindows ? false : true,
       ),
     );
   }
@@ -494,6 +496,7 @@ class _VideoWidgetsState extends State<VideoWidgets> {
               uid: 0,
               sourceType: VideoSourceType.videoSourceScreen,
             ),
+            useFlutterTexture: Platform.isWindows ? false : true,
           ),
         ),
         Positioned(
@@ -574,7 +577,7 @@ class _VideoWidgetsState extends State<VideoWidgets> {
 
     return ValueListenableBuilder<bool>(
       valueListenable: widget.controller.localUserJoined,
-      builder: (context, localUserJoined, child) {
+      builder: (context, localUserJoined, _) {
         if (!localUserJoined) {
           return Container(
             color: Colors.grey[900],
@@ -587,44 +590,109 @@ class _VideoWidgetsState extends State<VideoWidgets> {
           );
         }
 
-        final localVideoWidget = Stack(
-          children: [
-            AgoraVideoView(
-              controller: VideoViewController(
-                rtcEngine: widget.controller.engine,
-                canvas: const VideoCanvas(uid: 0),
-              ),
-            ),
-            Positioned(
-              top: 4,
-              left: 4,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.blue,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  'TÚ',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: fontSize,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
+        return ValueListenableBuilder<bool>(
+          valueListenable: widget.controller.isVideoMuted,
+          builder: (context, isVideoMuted, _) {
+            return ValueListenableBuilder<bool>(
+              valueListenable: widget.controller.isAudioMuted,
+              builder: (context, isAudioMuted, _) {
+                final Widget videoContent = isVideoMuted
+                    ? Container(
+                        color: const Color(0xFF1A1A2E),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                padding: EdgeInsets.all(isMaximized ? 20 : 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.blueGrey.shade800,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.blueGrey.shade500,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: Icon(
+                                  Icons.person,
+                                  size: isMaximized ? 72 : 40,
+                                  color: Colors.blueGrey.shade300,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Icon(
+                                Icons.videocam_off,
+                                size: isMaximized ? 18 : 13,
+                                color: Colors.red.shade300,
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : AgoraVideoView(
+                        controller: VideoViewController(
+                          rtcEngine: widget.controller.engine,
+                          canvas: const VideoCanvas(uid: 0),
+                          useFlutterTexture: Platform.isWindows ? false : true,
+                        ),
+                      );
 
-        return VideoWidgetWrapper(
-          uid: 0,
-          isScreenShare: false,
-          onDoubleTap: _toggleMaximizeView,
-          isMaximized: isMaximized,
-          child: isMaximized
-              ? localVideoWidget
-              : AspectRatio(aspectRatio: 16 / 9, child: localVideoWidget),
+                final localVideoWidget = Stack(
+                  children: [
+                    videoContent,
+                    // 🏷️ Etiqueta "TÚ"
+                    Positioned(
+                      top: 4,
+                      left: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.blue,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'TÚ',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: fontSize,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    // 🔇 Indicador de micro silenciado
+                    if (isAudioMuted)
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(0.85),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.mic_off,
+                            color: Colors.white,
+                            size: isMaximized ? 18 : 12,
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+
+                return VideoWidgetWrapper(
+                  uid: 0,
+                  isScreenShare: false,
+                  onDoubleTap: _toggleMaximizeView,
+                  isMaximized: isMaximized,
+                  child: isMaximized
+                      ? localVideoWidget
+                      : AspectRatio(aspectRatio: 16 / 9, child: localVideoWidget),
+                );
+              },
+            );
+          },
         );
       },
     );
@@ -643,6 +711,7 @@ class _VideoWidgetsState extends State<VideoWidgets> {
               uid: uid,
               sourceType: VideoSourceType.videoSourceScreen, // pantalla remota
             ),
+            useFlutterTexture: Platform.isWindows ? false : true,
           ),
         ),
         Positioned(

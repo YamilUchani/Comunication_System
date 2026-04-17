@@ -51,72 +51,6 @@ class VideoCallController {
       _engine.enableVideo();
       _engine.startPreview();
 
-      // CORRECCIÓN: El manejador de eventos ahora es mucho más robusto.
-      _engine.registerEventHandler(
-        RtcEngineEventHandler(
-          onJoinChannelSuccess: (connection, elapsed) {
-            // ✅ Cancelar el timeout si se recibe el evento
-            _joinTimeoutTimer?.cancel();
-            
-            // Si nos unimos con UID 0, Agora nos asigna uno real aquí
-            if (connection.localUid != null && connection.localUid != 0) {
-              _localUid = connection.localUid!;
-            }
-            localUserJoined.value = true;
-            print(
-              '[EVENT] onJoinChannelSuccess: connection=$connection, elapsed=$elapsed',
-            );
-          },
-          onUserJoined: (connection, uid, elapsed) {
-            final currentUids = Set<int>.from(remoteUids.value);
-            currentUids.add(uid);
-            remoteUids.value = currentUids;
-            print('[EVENT] onUserJoined: uid=$uid, connection=$connection');
-          },
-          onUserOffline: (connection, uid, reason) {
-            final currentUids = Set<int>.from(remoteUids.value);
-            final currentScreenShareUids = Set<int>.from(
-              remoteScreenShareUids.value,
-            );
-            currentUids.remove(uid);
-            // Si el usuario se va, también deja de compartir pantalla.
-            currentScreenShareUids.remove(uid);
-            remoteUids.value = currentUids;
-            remoteScreenShareUids.value = currentScreenShareUids;
-            print('[EVENT] onUserOffline: uid=$uid, reason=$reason');
-          },
-          onRemoteVideoStateChanged:
-              (connection, remoteUid, state, reason, elapsed) {
-                print(
-                  '[EVENT] onRemoteVideoStateChanged: uid=$remoteUid, state=$state, reason=$reason',
-                );
-              },
-          // CORRECCIÓN: Usaremos onVideoSizeChanged para detectar el stream de pantalla.
-          // Cuando un stream de pantalla llega, el sourceType será videoSourceScreen.
-          onVideoSizeChanged: (connection, sourceType, uid, width, height, rotation) {
-            print(
-              '[EVENT] onVideoSizeChanged: uid=$uid, sourceType=$sourceType, width=$width, height=$height',
-            );
-
-            // Verificamos el tipo de fuente del video
-            if (sourceType == VideoSourceType.videoSourceScreen) {
-              // Si vemos un video de tipo "pantalla" de este usuario, lo añadimos a la lista.
-              print(
-                '[SCREEN SHARE] Usuario $uid está compartiendo pantalla (${width}x$height)',
-              );
-              addRemoteScreenShareUid(uid);
-            } else if (sourceType == VideoSourceType.videoSourceCamera ||
-                sourceType == VideoSourceType.videoSourceCameraPrimary) {
-              // Si el video es de la cámara, nos aseguramos de que no esté en la lista de pantalla compartida.
-              print(
-                '[CAMERA] Usuario $uid está usando cámara (${width}x$height)',
-              );
-              removeRemoteScreenShareUid(uid);
-            }
-          },
-        ),
-      );
-
       final uid = _providedUid ?? 0;
       _localUid = uid;
 
@@ -132,7 +66,7 @@ class VideoCallController {
         }
       });
 
-      // Sobrescribir el handler para completar el completer
+      // ✅ UN SOLO registro de eventos consolidado
       _engine.registerEventHandler(
         RtcEngineEventHandler(
           onJoinChannelSuccess: (connection, elapsed) {
@@ -142,9 +76,7 @@ class VideoCallController {
             }
             localUserJoined.value = true;
             if (!completer.isCompleted) completer.complete();
-            print('[EVENT] onJoinChannelSuccess: connection=$connection');
-            
-            // NO HEARTBEAT - Solo usar eventos nativos de Agora
+            print('[EVENT] onJoinChannelSuccess: uid=${connection.localUid}');
           },
           onError: (err, msg) {
             print('❌ Agora Error: $err, $msg');
@@ -153,52 +85,51 @@ class VideoCallController {
           onUserJoined: (connection, uid, elapsed) {
             final currentUids = Set<int>.from(remoteUids.value)..add(uid);
             remoteUids.value = currentUids;
+            print('[EVENT] onUserJoined: uid=$uid');
           },
           onUserOffline: (connection, uid, reason) {
-            print('');
-            print('═══════════════════════════════════════════════════════════');
-            print('🚪 [DESCONEXION] onUserOffline detectado');
-            print('   Usuario UID: $uid');
-            print('   Razón: ${reason.name}');
-            print('   Timestamp: ${DateTime.now()}');
-            print('═══════════════════════════════════════════════════════════');
-            print('');
+            print('🚪 [DESCONEXION] onUserOffline uid=$uid razón=${reason.name}');
             
-            // Notificar al backend INMEDIATAMENTE
+            // Notificar al backend
             _notifyUserLeft(uid);
             
-            // Remover del layout INSTANTÁNEAMENTE cuando onUserOffline dispara
-            // El avatar ya está mostrándose en onRemoteVideoStateChanged (visual feedback)
             final currentUids = Set<int>.from(remoteUids.value)..remove(uid);
             remoteUids.value = currentUids;
-            print('✅ UID removido del layout INSTANTÁNEAMENTE. Usuarios activos: ${remoteUids.value}');
-            
-            // También remover de pantalla compartida si estuviera
+
             if (remoteScreenShareUids.value.contains(uid)) {
               removeRemoteScreenShareUid(uid);
-              print('✅ También removido de pantalla compartida');
+            }
+          },
+          onRemoteVideoStateChanged: (connection, remoteUid, state, reason, elapsed) {
+            print('[EVENT] onRemoteVideoStateChanged: uid=$remoteUid, state=$state, reason=$reason');
+          },
+          onVideoSizeChanged: (connection, sourceType, uid, width, height, rotation) {
+            if (sourceType == VideoSourceType.videoSourceScreen) {
+              addRemoteScreenShareUid(uid);
+            } else if (sourceType == VideoSourceType.videoSourceCamera ||
+                sourceType == VideoSourceType.videoSourceCameraPrimary) {
+              removeRemoteScreenShareUid(uid);
             }
           },
           onConnectionStateChanged: (connection, state, reason) {
             print('[EVENT] onConnectionStateChanged: state=$state, reason=$reason');
           },
           onNetworkQuality: (connection, uid, txQuality, rxQuality) {
-            // Monitorear la calidad de la RED del usuario LOCAL (uid == 0)
             if (uid == 0) {
-              // Índices: 0=EXCELLENT, 1=GOOD, 2=FAIR, 3=POOR, 4=BAD, 5=VBAD (DOWN)
-              final isNetworkBad = txQuality.index >= 4; // BAD (4) o VBAD (5)
-              
+              final isNetworkBad = txQuality.index >= 4;
               if (isNetworkBad && !_isNetworkQualityLow) {
-                // Red está mala, desactivar cámara
                 _isNetworkQualityLow = true;
                 _isCameraDisabledByNetwork = true;
+                // Solo silenciamos el stream, no lo desactivamos (para no interferir con el toggle manual)
                 _engine.muteLocalVideoStream(true);
-                print('⚠️ Red mala detectada (${txQuality.name}), cámara desactivada automáticamente');
+                print('⚠️ Red mala (${txQuality.name}), cámara silenciada');
               } else if (!isNetworkBad && _isNetworkQualityLow) {
-                // Red se recuperó, reactivar cámara
                 _isNetworkQualityLow = false;
                 _isCameraDisabledByNetwork = false;
-                _engine.muteLocalVideoStream(false);
+                // Solo reactivar si el usuario no lo muted manualmente
+                if (!isVideoMuted.value) {
+                  _engine.muteLocalVideoStream(false);
+                }
                 print('✅ Red recuperada (${txQuality.name}), cámara reactivada');
               }
             }
@@ -218,7 +149,6 @@ class VideoCallController {
         ),
       );
 
-      // Esperar al éxito o al fallo/timeout
       return completer.future;
     } catch (e) {
       debugPrint('Error al inicializar Agora: $e');
@@ -229,14 +159,18 @@ class VideoCallController {
 
   Future<void> toggleAudio() async {
     final newMuteState = !isAudioMuted.value;
-    await _engine.muteLocalAudioStream(newMuteState);
+    // enableLocalAudio(false) detiene el track completamente (más confiable que mute)
+    await _engine.enableLocalAudio(!newMuteState);
     isAudioMuted.value = newMuteState;
+    print('🎤 Audio ${newMuteState ? "desactivado" : "activado"}');
   }
 
   Future<void> toggleVideo() async {
     final newMuteState = !isVideoMuted.value;
-    await _engine.muteLocalVideoStream(newMuteState);
+    // enableLocalVideo(false) detiene el track y el preview (más confiable que mute)
+    await _engine.enableLocalVideo(!newMuteState);
     isVideoMuted.value = newMuteState;
+    print('📷 Video ${newMuteState ? "desactivado" : "activado"}');
   }
 
   // ❤️ NO HEARTBEAT: Usar solo eventos nativos de Agora

@@ -22,6 +22,7 @@ class MeetingService {
     required String title,
     String? description,
     String meetingType = 'master',
+    List<String>? allowedUsers,
   }) async {
     final token = await _getAuthToken();
     if (token == null) {
@@ -39,6 +40,7 @@ class MeetingService {
         'title': title,
         'description': description,
         'meeting_type': meetingType,
+        if (allowedUsers != null) 'allowed_users': allowedUsers,
       }),
     );
 

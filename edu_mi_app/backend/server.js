@@ -38,7 +38,7 @@ app.use(cors({
 // Rate limiting para prevenir abuso
 const limiter = rateLimit({
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutos
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // límite de peticiones
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 5000, // límite de peticiones (AUMETADO pq app pulea cada 3 seg)
     message: 'Demasiadas peticiones desde esta IP, por favor intenta más tarde.'
 });
 

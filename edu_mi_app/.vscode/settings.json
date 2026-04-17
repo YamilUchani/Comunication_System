@@ -1,0 +1,9 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "ForEach-Object": true,
+        "/^cd \"g:\\\\Github\\\\Software de administracion\\\\Comunication_System\\\\edu_mi_app\\\\backend\"; pwsh -File \"apply-students-status-fix\\.ps1\" -DryRun$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

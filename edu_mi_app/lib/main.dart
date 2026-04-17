@@ -178,6 +178,7 @@ Future<void> main(List<String> args) async {
                     meetingTitle: meetingTitle ?? 'Reunión',
                     meetingId: meetingId,
                     authToken: authToken,
+                    isPrivateClass: isPrivateClass,
                   ),
                 ),
               ),
@@ -207,9 +208,9 @@ Future<void> main(List<String> args) async {
             });
           }
 
-          // 🎓 Si es estudiante, usar StudentVideoCallScreen (sistema diferente con auto-compartir pantalla)
-          if (userRole == 'student') {
-            print('🎓 [STUDENT VIDEOCALL] Iniciando sistema de videollamada para estudiante...');
+          // 🎓 Si es estudiante en magistral, usar StudentVideoCallScreen (sistema diferente, con cámara abajo y enfoque total maestro)
+          if (userRole == 'student' && !isPrivateClass) {
+            print('🎓 [STUDENT VIDEOCALL] Iniciando sistema de videollamada Magistral para estudiante...');
             runApp(MaterialApp(
               debugShowCheckedModeBanner: false,
               theme: ThemeData(
@@ -227,8 +228,8 @@ Future<void> main(List<String> args) async {
               ),
             ));
           } else {
-            // 👨‍🏫 Maestro y Admin usan el VideoCallScreen original
-            print('👨‍🏫 [TEACHER/ADMIN VIDEOCALL] Iniciando sistema de videollamada...');
+            // 👨‍🏫 Maestro/Admin, O Estudiante en Grupal, usan el VideoCallScreen original (Cuadrícula interactiva completa)
+            print('👨‍🏫 [TEACHER/ADMIN/GROUP] Iniciando sistema de videollamada estándar...');
             runApp(MaterialApp(
               debugShowCheckedModeBanner: false,
               theme: ThemeData(

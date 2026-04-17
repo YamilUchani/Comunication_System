@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:async';
 import 'package:window_manager/window_manager.dart';
 import '../services/window_service.dart';
+import '../services/api_service.dart';
 
 class StudentWaitingRoomScreen extends StatefulWidget {
   final String channelName;
@@ -12,6 +13,7 @@ class StudentWaitingRoomScreen extends StatefulWidget {
   final String meetingTitle;
   final String? meetingId;
   final String? authToken;
+  final bool isPrivateClass;
 
   const StudentWaitingRoomScreen({
     super.key,
@@ -21,6 +23,7 @@ class StudentWaitingRoomScreen extends StatefulWidget {
     required this.meetingTitle,
     this.meetingId,
     this.authToken,
+    this.isPrivateClass = false,
   });
 
   @override
@@ -47,6 +50,11 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
     }
     _initializeWindow();
     _setupRealtimeSubscription();
+    
+    // Explicitamente reportar a la BD que entramos a sala de espera
+    if (widget.meetingId != null) {
+      ApiService.setBackToWaitingRoomStatus(widget.meetingId!);
+    }
   }
 
   void _setupRealtimeSubscription() {
@@ -106,17 +114,23 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
             }
           },
         )
-        .subscribe();
+        .subscribe((status, error) {
+          if (status == 'SUBSCRIBED') {
+            print('✅ Suscrito al canal de reunión. Enviando señal de presencia...');
+            _callTeacher(isAuto: true);
+          }
+        });
   }
 
-  Future<void> _callTeacher() async {
-    if (_isCoolingDown) return;
+  Future<void> _callTeacher({bool isAuto = false}) async {
+    if (_isCoolingDown && !isAuto) return;
     final meetingId = widget.meetingId;
     if (meetingId == null) return;
 
-    setState(() => _isCoolingDown = true);
+    if (!isAuto) setState(() => _isCoolingDown = true);
 
     try {
+      print('📡 Enviando señal student_calling (auto: $isAuto)');
       await Supabase.instance.client
           .channel('meeting:$meetingId')
           .sendBroadcastMessage(
@@ -124,10 +138,11 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
             payload: {
               'student_name': widget.userName,
               'user_id': Supabase.instance.client.auth.currentUser?.id ?? '',
+              'is_auto': isAuto,
             },
           );
 
-      if (mounted) {
+      if (mounted && !isAuto) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('📞 Notificación enviada al maestro'),
@@ -135,13 +150,19 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
           ),
         );
       }
+      
+      // Update BD explicitly for teacher's heartbeat list
+      ApiService.setBackToWaitingRoomStatus(meetingId);
+      
     } catch (e) {
       print('❌ Error al llamar al maestro: $e');
     }
 
-    // Cooldown de 5 segundos para evitar spam
-    await Future.delayed(const Duration(seconds: 5));
-    if (mounted) setState(() => _isCoolingDown = false);
+    if (!isAuto) {
+      // Cooldown de 5 segundos para evitar spam (solo si es manual)
+      await Future.delayed(const Duration(seconds: 5));
+      if (mounted) setState(() => _isCoolingDown = false);
+    }
   }
 
   @override
@@ -273,7 +294,13 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
         authToken: widget.authToken,
         windowWidth: 300,
         windowHeight: 900,
+        isPrivateClass: widget.isPrivateClass,
       );
+
+      if (widget.meetingId != null) {
+        // Enforce the in_call state in DB immediately
+        await ApiService.setEnteredCallStatus(widget.meetingId!);
+      }
 
       // Cerrar la ventana de sala de espera después de abrir la videollamada
       print('🔴 Cerrando ventana de sala de espera...');

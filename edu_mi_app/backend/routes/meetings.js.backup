@@ -194,8 +194,7 @@ router.post('/join', authenticateUser, async (req, res, next) => {
                         expires_at: expiresAt.toISOString(),
                         is_active: true,
                         allowed_groups: [schedule.group_name],
-                        allowed_users: schedule.allowed_users || [],
-                        meeting_type: schedule.schedule_type || 'master',
+                        meeting_type: 'master', // Scheduled classes default to master
                         is_virtual: true
                     })
                     .select()
@@ -850,9 +849,7 @@ router.post('/schedules', authenticateUser, async (req, res, next) => {
                 end_time,
                 teacher_id: userId,
                 group_name: group_name || profile.group_name,
-                is_active: true,
-                schedule_type: req.body.schedule_type || 'master',
-                allowed_users: req.body.allowed_users || []
+                is_active: true
             })
             .select()
             .single();
@@ -897,10 +894,10 @@ router.get('/:meetingId/students-status', authenticateUser, async (req, res, nex
     try {
         const { meetingId } = req.params;
 
-        // 1. Obtener la reunión y sus restricciones
+        // 1. Obtener la reunión para saber el grupo o usuarios permitidos
         const { data: meeting, error: meetingError } = await supabase
             .from('meetings')
-            .select('allowed_groups, allowed_users, creator_id, meeting_type')
+            .select('allowed_groups, allowed_users')
             .eq('id', meetingId)
             .single();
 
@@ -908,10 +905,10 @@ router.get('/:meetingId/students-status', authenticateUser, async (req, res, nex
             return res.status(404).json({ error: { message: 'Reunión no encontrada' } });
         }
 
-        const allowedGroups = meeting.allowed_groups || [];
-        const allowedUsers = meeting.allowed_users || [];
+        const groups = meeting.allowed_groups || [];
+        const users = meeting.allowed_users || [];
 
-        // 2. Obtener participantes actuales (los que ya se unieron o están esperando)
+        // 2. Obtener el estado actual en meeting_participants
         const { data: participants, error: participantsError } = await supabase
             .from('meeting_participants')
             .select('user_id, joined_at, last_heartbeat, left_at')
@@ -919,59 +916,51 @@ router.get('/:meetingId/students-status', authenticateUser, async (req, res, nex
 
         if (participantsError) throw participantsError;
 
-        // 3. Determinar lista de UserIDs a mostrar
-        const studentIdsSet = new Set();
-        
-        // Agregar IDs de participantes actuales (que sean estudiantes)
-        if (participants && participants.length > 0) {
-            participants.forEach(p => studentIdsSet.add(p.user_id));
+        let students = [];
+
+        // 3. Obtener perfiles dependiendo de las restricciones de la reunión
+        if (groups.length > 0) {
+            const { data: groupStudents } = await supabase
+                .from('profiles')
+                .select('user_id, full_name, role')
+                .in('group_name', groups)
+                .eq('role', 'student');
+            
+            if (groupStudents) students.push(...groupStudents);
         }
 
-        // Agregar IDs de estudiantes esperados por grupo
-        let finalGroups = [...allowedGroups];
-        if (finalGroups.length === 0) {
-            // Si no hay grupos, intentar usar el del creador como fallback para poblar la lista de "Ausentes"
-            const { data: creator } = await supabase
+        if (users.length > 0) {
+            const { data: userStudents } = await supabase
                 .from('profiles')
-                .select('group_name')
-                .eq('user_id', meeting.creator_id)
-                .single();
-            if (creator && creator.group_name) {
-                finalGroups = [creator.group_name];
+                .select('user_id, full_name, role')
+                .in('user_id', users);
+            
+            if (userStudents) {
+                const existingIds = new Set(students.map(s => s.user_id));
+                userStudents.forEach(u => {
+                    if (!existingIds.has(u.user_id)) {
+                        students.push(u);
+                    }
+                });
             }
         }
 
-        if (finalGroups.length > 0) {
-            const { data: groupStudents } = await supabase
-                .from('profiles')
-                .select('user_id')
-                .in('group_name', finalGroups)
-                .eq('role', 'student');
-            if (groupStudents) groupStudents.forEach(s => studentIdsSet.add(s.user_id));
+        if (groups.length === 0 && users.length === 0) {
+            // Reunión sin restricciones: mostrar solo a los partícipes que se hayan unido
+            if (participants && participants.length > 0) {
+                const userIdsInMeeting = participants.map(p => p.user_id);
+                const { data: participantProfiles } = await supabase
+                    .from('profiles')
+                    .select('user_id, full_name, role')
+                    .in('user_id', userIdsInMeeting);
+                
+                if (participantProfiles) students = participantProfiles;
+            }
         }
 
-        // Agregar IDs de usuarios específicos permitidos
-        if (allowedUsers.length > 0) {
-            allowedUsers.forEach(id => studentIdsSet.add(id));
-        }
-
-        // 4. Obtener perfiles completos de todos los IDs identificados (solo si son estudiantes)
-        if (studentIdsSet.size === 0) {
-            return res.json({ students: [] });
-        }
-
-        const { data: studentProfiles, error: profilesError } = await supabase
-            .from('profiles')
-            .select('user_id, full_name, role')
-            .in('user_id', Array.from(studentIdsSet))
-            .eq('role', 'student');
-
-        if (profilesError) throw profilesError;
-
-        // 5. Mapear estado de cada estudiante
-        const safeParticipants = participants || [];
-        const result = studentProfiles.map(student => {
-            const participantObj = safeParticipants.find(p => p.user_id === student.user_id);
+        // 4. Mapear estado
+        const result = students.map(student => {
+            const participantObj = participants.find(p => p.user_id === student.user_id);
             let state = 'absent';
 
             if (participantObj) {
@@ -991,11 +980,6 @@ router.get('/:meetingId/students-status', authenticateUser, async (req, res, nex
             };
         });
 
-        // Ordenar: primero 'waiting', luego 'in_call', luego 'absent', luego 'left'
-        const statusOrder = { 'waiting': 0, 'in_call': 1, 'absent': 2, 'left': 3 };
-        result.sort((a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99));
-
-        logger.info(`[students-status] Retornando ${result.length} estudiantes para reunión ${meetingId}`);
         res.json({ students: result });
     } catch (error) {
         next(error);
