@@ -52,6 +52,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
   bool _showStudents = false; // 👥 Control de visibilidad de lista de estudiantes
   List<dynamic> _studentsList = [];
   Timer? _studentsTimer;
+  Timer? _autoStudentRefreshTimer; // ⏱️ Auto-refresh background
   bool _whiteboardOpen = false; // 🎨 Trackea si la pizarra está abierta
   RealtimeChannel? _meetingChannel; // 📡 Canal para señales de estudiantes (espera/admisión)
   
@@ -79,6 +80,14 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
     MeetingCleanupService.registerActiveController(controller);
     _initAgora();
     _setupMeetingChannel();
+    
+    // 👥 Auto-load student list immediately (before teacher opens panel)
+    print('⏱️ Iniciando auto-polling de estudiantes (10 segundos)');
+    _autoStudentRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted && !_showStudents) {
+        _fetchStudentsStatus();
+      }
+    });
   }
 
   void _setupMeetingChannel() {
@@ -1015,6 +1024,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
   @override
   void dispose() {
     _studentsTimer?.cancel();
+    _autoStudentRefreshTimer?.cancel();
     _meetingChannel?.unsubscribe();
     if (Platform.isWindows) {
       windowManager.removeListener(this);

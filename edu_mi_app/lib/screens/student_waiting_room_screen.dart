@@ -125,39 +125,76 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
   Future<void> _callTeacher({bool isAuto = false}) async {
     if (_isCoolingDown && !isAuto) return;
     final meetingId = widget.meetingId;
-    if (meetingId == null) return;
+    if (meetingId == null) {
+      print('❌ ERROR: meetingId es NULL, no puedo llamar al maestro');
+      return;
+    }
 
     if (!isAuto) setState(() => _isCoolingDown = true);
 
     try {
-      print('📡 Enviando señal student_calling (auto: $isAuto)');
-      await _realtimeChannel?.sendBroadcastMessage(
-            event: 'student_calling',
-            payload: {
-              'student_name': widget.userName,
-              'user_id': Supabase.instance.client.auth.currentUser?.id ?? '',
-              'is_auto': isAuto,
-            },
-          );
+      print('📡 Enviando señal student_calling...');
+      print('   - Película: ${widget.meetingId}');
+      print('   - Usuario: ${Supabase.instance.client.auth.currentUser?.id}');
+      print('   - Nombre: ${widget.userName}');
+      
+      // Enviar evento con reintentos
+      bool eventSent = false;
+      int retries = 0;
+      while (!eventSent && retries < 3) {
+        try {
+          await _realtimeChannel?.sendBroadcastMessage(
+                event: 'student_calling',
+                payload: {
+                  'student_name': widget.userName,
+                  'user_id': Supabase.instance.client.auth.currentUser?.id ?? '',
+                  'is_auto': isAuto,
+                  'timestamp': DateTime.now().toIso8601String(),
+                },
+              );
+          eventSent = true;
+          print('✅ Evento student_calling enviado exitosamente');
+        } catch (e) {
+          retries++;
+          print('⚠️ Reintento $retries/3 - Error enviando evento: $e');
+          if (retries < 3) {
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
+        }
+      }
+
+      if (!eventSent) {
+        print('❌ No se pudo enviar el evento después de 3 intentos');
+      }
 
       if (mounted && !isAuto) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('📞 Notificación enviada al maestro'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text(eventSent ? '📞 Notificación enviada al maestro' : '⚠️ Error al notificar'),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
       
-      // Update BD explicitly for teacher's heartbeat list
-      ApiService.setBackToWaitingRoomStatus(meetingId);
+      // Update BD - Registrar en sala de espera
+      print('💾 Registrando estado en BD (waiting room)...');
+      try {
+        await ApiService.setBackToWaitingRoomStatus(meetingId);
+        print('✅ Estado guardado en BD');
+      } catch (e) {
+        print('❌ Error guardando estado en BD: $e');
+      }
       
     } catch (e) {
-      print('❌ Error al llamar al maestro: $e');
+      print('❌ Error general en _callTeacher: $e');
     }
 
     if (!isAuto) {
       // Cooldown de 5 segundos para evitar spam (solo si es manual)
+      await Future.delayed(const Duration(seconds: 5));
+      if (mounted) setState(() => _isCoolingDown = false);
+    }
+  }
       await Future.delayed(const Duration(seconds: 5));
       if (mounted) setState(() => _isCoolingDown = false);
     }
