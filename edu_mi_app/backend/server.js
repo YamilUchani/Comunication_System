@@ -11,6 +11,7 @@ const achievementsRoutes = require('./routes/achievements');
 const attendanceRoutes = require('./routes/attendance');
 
 const app = express();
+app.set('trust proxy', 1); // Confía en el primer proxy (Render, Railway, etc.)
 const PORT = process.env.PORT || 3000;
 
 // Middleware de seguridad
