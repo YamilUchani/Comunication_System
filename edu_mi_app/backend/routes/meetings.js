@@ -1070,3 +1070,4 @@ ${JSON.stringify(result, null, 2)}`);
 
 module.exports = router;
 console.log('🔥 NUEVO BACKEND DEPLOYADO');
+console.log('🔥 BACKEND VERSION 2');
