@@ -100,6 +100,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
         .onBroadcast(
           event: 'student_calling',
           callback: (payload) {
+            print('📥 EVENTO RECIBIDO: ${payload}');
             try {
               // ✅ Validar estructura del payload
               if (payload is! Map<String, dynamic>) {

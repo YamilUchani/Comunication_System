@@ -240,6 +240,11 @@ router.post('/join', authenticateUser, async (req, res, next) => {
         const remainingTime = Math.floor((expiresAt - now) / 1000);
         const token = generateRtcToken(channelName, 0, 'publisher', remainingTime);
 
+        logger.info(`🟡 JOIN REQUEST:
+- userId=${userId}
+- meetingId=${meeting.id}
+- channel=${channelName}`);
+
         // Registrar la participación del usuario en sala de espera
         await supabase
             .from('meeting_participants')
@@ -252,6 +257,11 @@ router.post('/join', authenticateUser, async (req, res, next) => {
             }, {
                 onConflict: 'meeting_id,user_id'
             });
+
+        logger.info(`✅ PARTICIPANT UPSERTED:
+- meetingId=${meeting.id}
+- userId=${userId}
+- waiting=true`);
 
         // Responder con el token
         res.json({
@@ -641,6 +651,10 @@ router.post('/:meetingId/entered-call', authenticateUser, async (req, res, next)
             joined_at: new Date().toISOString()
         };
 
+        logger.info(`🟢 ENTERED CALL:
+- meetingId=${meetingId}
+- userId=${userId}`);
+
         const { error } = await supabase
             .from('meeting_participants')
             .upsert(payload, {
@@ -651,6 +665,10 @@ router.post('/:meetingId/entered-call', authenticateUser, async (req, res, next)
             logger.error('❌ entered-call error', error);
             throw error;
         }
+
+        logger.info(`✅ IN_CALL UPSERT SUCCESS:
+- meetingId=${meetingId}
+- userId=${userId}`);
 
         logger.info(`🟢 ${userId} marcado IN_CALL en reunión ${meetingId}`);
 
@@ -681,6 +699,10 @@ router.post('/:meetingId/back-to-waiting-room', authenticateUser, async (req, re
             joined_at: new Date().toISOString()
         };
 
+        logger.info(`🟡 BACK TO WAITING ROOM:
+- meetingId=${meetingId}
+- userId=${userId}`);
+
         const { error } = await supabase
             .from('meeting_participants')
             .upsert(payload, {
@@ -691,6 +713,10 @@ router.post('/:meetingId/back-to-waiting-room', authenticateUser, async (req, re
             logger.error('❌ back-to-waiting-room error', error);
             throw error;
         }
+
+        logger.info(`✅ WAITING ROOM UPSERT SUCCESS:
+- meetingId=${meetingId}
+- userId=${userId}`);
 
         logger.info(`🟡 ${userId} marcado WAITING en reunión ${meetingId}`);
 
@@ -949,6 +975,13 @@ router.get('/:meetingId/students-status', authenticateUser, async (req, res, nex
 
         if (participantsError) throw participantsError;
 
+        if (!participants || participants.length === 0) {
+            logger.warn(`⚠️ NO PARTICIPANTS FOUND FOR MEETING ${meetingId}`);
+        }
+
+        logger.info(`📊 PARTICIPANTS RAW:
+${JSON.stringify(participants, null, 2)}`);
+
         // 3. Determinar lista de UserIDs a mostrar
         const studentIdsSet = new Set();
 
@@ -1024,6 +1057,9 @@ router.get('/:meetingId/students-status', authenticateUser, async (req, res, nex
         // Ordenar: primero 'waiting', luego 'in_call', luego 'absent', luego 'left'
         const statusOrder = { 'waiting': 0, 'in_call': 1, 'absent': 2, 'left': 3 };
         result.sort((a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99));
+
+        logger.info(`📋 FINAL STUDENT STATUS:
+${JSON.stringify(result, null, 2)}`);
 
         logger.info(`[students-status] Retornando ${result.length} estudiantes para reunión ${meetingId}`);
         res.json({ students: result });

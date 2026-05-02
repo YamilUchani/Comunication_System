@@ -163,10 +163,9 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
     if (!isAuto) setState(() => _isCoolingDown = true);
 
     try {
-      print('📡 Enviando señal student_calling...');
-      print('   - Reunión: $meetingId');
-      print('   - Usuario: ${Supabase.instance.client.auth.currentUser?.id}');
-      print('   - Nombre: ${widget.userName}');
+      print('📡 ENVIANDO BROADCAST student_calling');
+      print('📡 meetingId=$meetingId');
+      print('📡 currentUser=${Supabase.instance.client.auth.currentUser?.id}');
       
       // ✅ Reintentar broadcast con exponential backoff
       await _retryOperation(
@@ -183,7 +182,7 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
         delayMs: 500,
       );
       
-      print('✅ Evento student_calling enviado exitosamente');
+      print('✅ BROADCAST ENVIADO');
 
       if (mounted && !isAuto) {
         ScaffoldMessenger.of(context).showSnackBar(
