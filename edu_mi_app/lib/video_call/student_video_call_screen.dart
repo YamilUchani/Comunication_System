@@ -7,7 +7,6 @@
 import 'dart:ui';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'video_call_controller.dart';
 import 'screen_sharing_windows.dart';
 import 'video_widgets.dart';
@@ -26,6 +25,7 @@ class StudentVideoCallScreen extends StatefulWidget {
   final String userName;
   final String? meetingId;
   final String? authToken;
+  final bool isPrivateClass;
 
   const StudentVideoCallScreen({
     super.key,
@@ -39,7 +39,6 @@ class StudentVideoCallScreen extends StatefulWidget {
   });
 
   final int? uid;
-  final bool isPrivateClass;
 
   @override
   _StudentVideoCallScreenState createState() => _StudentVideoCallScreenState();
@@ -64,24 +63,17 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
   Size? _preBubbleSize;
   Offset? _preBubblePosition;
   
-  bool _isTogglingFullScreen = false; // 🔒 Bloqueo para evitar bugs de clics simultáneos
-  RealtimeChannel? _kickChannel; // 📡 Canal para escuchar expulsiones
+  // 🔑 Llave global para preservar el estado del video al cambiar de diseño
+  final GlobalKey _teacherVideoKey = GlobalKey();
 
   void _toggleFullScreen() async {
-    if (_isTogglingFullScreen) return;
-    _isTogglingFullScreen = true;
-
     try {
       if (Platform.isWindows) {
         if (_isBubbleMode) await _toggleBubbleMode(); // Salir de burbuja primero
         await windowManager.ensureInitialized();
-        final targetState = !_isFullScreen;
-        await windowManager.setFullScreen(targetState);
-        if (mounted) {
-          setState(() {
-            _isFullScreen = targetState;
-          });
-        }
+        _isFullScreen = !_isFullScreen;
+        await windowManager.setFullScreen(_isFullScreen);
+        setState(() {});
       } else {
         setState(() {
           _isFullScreen = !_isFullScreen;
@@ -89,10 +81,7 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
       }
     } catch (e) {
       print('❌ Error Full Screen: $e');
-    } finally {
-      if (mounted) {
-        _isTogglingFullScreen = false;
-      }
+      setState(() { _isFullScreen = !_isFullScreen; });
     }
   }
 
@@ -214,9 +203,6 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
         // Procesar estado inicial por si ya hay remotos
         _onRemoteUidsChanged();
 
-        // 🚫 Suscribirse a eventos de expulsión
-        _subscribeToKick();
-
         print('[INIT] ✅ Listo para compartir pantalla manualmente');
       }
     } catch (e) {
@@ -240,54 +226,6 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
         print('[CHAT] 🏫 Maestro detectado: UID=$teacherUidStr');
       }
     }
-  }
-
-  /// 🚫 Suscribirse a eventos de expulsión del maestro
-  void _subscribeToKick() {
-    final meetingId = widget.meetingId;
-    if (meetingId == null) return;
-
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-    if (currentUserId == null) return;
-
-    _kickChannel = Supabase.instance.client
-        .channel('meeting:$meetingId')
-        .onBroadcast(
-          event: 'kick_student',
-          callback: (payload) {
-            final kickedId = payload['user_id'] as String?;
-            if (kickedId == currentUserId && mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('⛔ El maestro te ha expulsado de la clase'),
-                  backgroundColor: Colors.red,
-                  duration: Duration(seconds: 3),
-                ),
-              );
-              Future.delayed(const Duration(seconds: 1), () {
-                if (mounted) _exitMeeting();
-              });
-            }
-          },
-        )
-        .onBroadcast(
-          event: 'meeting_ended',
-          callback: (payload) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('La clase ha sido finalizada por el maestro.'),
-                  backgroundColor: Colors.red,
-                  duration: Duration(seconds: 3),
-                ),
-              );
-              Future.delayed(const Duration(seconds: 2), () {
-                if (mounted) _exitMeeting();
-              });
-            }
-          },
-        )
-        .subscribe();
   }
 
   Future<int> _getLocalUid() async {
@@ -556,14 +494,7 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
                             children: [
                               Column(
                                 children: [
-                                  Expanded(
-                                    child: widget.isPrivateClass 
-                                      ? VideoWidgets(
-                                          controller: controller,
-                                          screenController: screenController,
-                                        )
-                                      : _buildStudentVideoLayout(),
-                                  ),
+                                  Expanded(child: _buildStudentVideoLayout()),
                                 ],
                               ),
 
@@ -893,10 +824,13 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
 
   /// 🎓 Área del maestro (Video o Pantalla compartida)
   Widget _buildTeacherArea() {
-    return Container(
-      color: Colors.black,
-      child: Stack(
-        children: [
+    return GestureDetector(
+      key: _teacherVideoKey,
+      onDoubleTap: _toggleFullScreen,
+      child: Container(
+        color: Colors.black,
+        child: Stack(
+          children: [
             Positioned.fill(
               child: ValueListenableBuilder<Set<int>>(
                 valueListenable: controller.remoteUids,
@@ -1069,6 +1003,7 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
             ),
           ),
         ]),
+      ),
     );
   }
 
@@ -1327,7 +1262,6 @@ class _StudentVideoCallScreenState extends State<StudentVideoCallScreen>
 
   @override
   void dispose() {
-    _kickChannel?.unsubscribe();
     if (Platform.isWindows) {
       if (_isFullScreen) windowManager.setFullScreen(false);
       if (_isBubbleMode) {

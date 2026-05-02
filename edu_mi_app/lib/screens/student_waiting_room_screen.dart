@@ -122,11 +122,41 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
         });
   }
 
+  /// ✅ Helper: Reintenta una operación con delays exponenciales
+  Future<void> _retryOperation(
+    Future<void> Function() operation, {
+    int maxRetries = 3,
+    int delayMs = 500,
+  }) async {
+    for (int i = 0; i < maxRetries; i++) {
+      try {
+        await operation();
+        return;
+      } catch (e) {
+        if (i < maxRetries - 1) {
+          final delayTime = delayMs * (i + 1); // Exponencial: 500ms, 1000ms, 1500ms
+          print('   ⏳ Reintentando en ${delayTime}ms...');
+          await Future.delayed(Duration(milliseconds: delayTime));
+        }
+      }
+    }
+    throw Exception('Operación falló después de $maxRetries intentos');
+  }
+
   Future<void> _callTeacher({bool isAuto = false}) async {
     if (_isCoolingDown && !isAuto) return;
+    
     final meetingId = widget.meetingId;
     if (meetingId == null) {
-      print('❌ ERROR: meetingId es NULL, no puedo llamar al maestro');
+      print('❌ ERROR: meetingId es NULL');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('❌ Error: ID de reunión no disponible'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       return;
     }
 
@@ -134,67 +164,59 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
 
     try {
       print('📡 Enviando señal student_calling...');
-      print('   - Película: ${widget.meetingId}');
+      print('   - Reunión: $meetingId');
       print('   - Usuario: ${Supabase.instance.client.auth.currentUser?.id}');
       print('   - Nombre: ${widget.userName}');
       
-      // Enviar evento con reintentos
-      bool eventSent = false;
-      int retries = 0;
-      while (!eventSent && retries < 3) {
-        try {
-          await _realtimeChannel?.sendBroadcastMessage(
-                event: 'student_calling',
-                payload: {
-                  'student_name': widget.userName,
-                  'user_id': Supabase.instance.client.auth.currentUser?.id ?? '',
-                  'is_auto': isAuto,
-                  'timestamp': DateTime.now().toIso8601String(),
-                },
-              );
-          eventSent = true;
-          print('✅ Evento student_calling enviado exitosamente');
-        } catch (e) {
-          retries++;
-          print('⚠️ Reintento $retries/3 - Error enviando evento: $e');
-          if (retries < 3) {
-            await Future.delayed(const Duration(milliseconds: 500));
-          }
-        }
-      }
-
-      if (!eventSent) {
-        print('❌ No se pudo enviar el evento después de 3 intentos');
-      }
+      // ✅ Reintentar broadcast con exponential backoff
+      await _retryOperation(
+        () => _realtimeChannel!.sendBroadcastMessage(
+          event: 'student_calling',
+          payload: {
+            'student_name': widget.userName,
+            'user_id': Supabase.instance.client.auth.currentUser?.id ?? '',
+            'is_auto': isAuto,
+            'timestamp': DateTime.now().toIso8601String(),
+          },
+        ),
+        maxRetries: 3,
+        delayMs: 500,
+      );
+      
+      print('✅ Evento student_calling enviado exitosamente');
 
       if (mounted && !isAuto) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(eventSent ? '📞 Notificación enviada al maestro' : '⚠️ Error al notificar'),
-            duration: const Duration(seconds: 2),
+          const SnackBar(
+            content: Text('📞 Notificación enviada al maestro'),
+            duration: Duration(seconds: 2),
           ),
         );
       }
       
-      // Update BD - Registrar en sala de espera
-      print('💾 Registrando estado en BD (waiting room)...');
-      try {
-        await ApiService.setBackToWaitingRoomStatus(meetingId);
-        print('✅ Estado guardado en BD');
-      } catch (e) {
-        print('❌ Error guardando estado en BD: $e');
-      }
+      // ✅ Reintentar API call también
+      print('💾 Registrando estado en BD...');
+      await _retryOperation(
+        () => ApiService.setBackToWaitingRoomStatus(meetingId),
+        maxRetries: 2,
+        delayMs: 1000,
+      );
+      print('✅ Estado guardado en BD');
       
     } catch (e) {
-      print('❌ Error general en _callTeacher: $e');
+      print('❌ Error en _callTeacher: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ Error al contactar maestro: $e'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
 
     if (!isAuto) {
-      // Cooldown de 5 segundos para evitar spam (solo si es manual)
-      await Future.delayed(const Duration(seconds: 5));
-      if (mounted) setState(() => _isCoolingDown = false);
-    }
-  }
       await Future.delayed(const Duration(seconds: 5));
       if (mounted) setState(() => _isCoolingDown = false);
     }

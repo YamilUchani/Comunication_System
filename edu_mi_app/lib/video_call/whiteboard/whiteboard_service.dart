@@ -129,7 +129,13 @@ class WhiteboardService {
     );
   }
 
-  void dispose() {
-    _channel.unsubscribe();
+  Future<void> dispose() async {
+    try {
+      print('🧹 [WHITEBOARD_SERVICE] Desuscribiendo del canal...');
+      await _channel.unsubscribe();
+      print('✅ [WHITEBOARD_SERVICE] Canal cerrado correctamente');
+    } catch (e) {
+      print('⚠️ [WHITEBOARD_SERVICE] Error unsubscribing: $e');
+    }
   }
 }

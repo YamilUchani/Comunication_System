@@ -101,20 +101,24 @@ class SessionService {
       if (updateResult.isEmpty) {
         print('[SESSION_SERVICE] UPDATE no afectó filas, haciendo INSERT...');
         
-        // Obtener nombre del usuario
+        // ✅ Obtener datos del usuario para INSERT completo
         final userProfile = await _supabase
             .from('profiles')
             .select('full_name, role')
             .eq('user_id', userId)
             .maybeSingle();
         
-        final userName = userProfile?['full_name'] as String? ?? 'Usuario';
-        final userRole = userProfile?['role'] as String? ?? 'student';
+        if (userProfile == null) {
+          throw Exception('Perfil de usuario no encontrado: $userId');
+        }
+        
+        final userName = userProfile['full_name'] as String? ?? 'Usuario';
+        final userRole = userProfile['role'] as String? ?? 'student';
         
         print('[SESSION_SERVICE] Insertando: userName=$userName, userRole=$userRole');
         
-        // Insertar participante directamente con status='active'
-        await _supabase
+        // ✅ Validar INSERT exitoso
+        final insertResult = await _supabase
             .from('session_participants')
             .insert({
               'session_id': sessionId,
@@ -125,20 +129,17 @@ class SessionService {
               'joined_at': DateTime.now().toIso8601String(),
               'updated_at': DateTime.now().toIso8601String(),
               'last_seen': DateTime.now().toIso8601String(),
-            });
+            })
+            .select();
+        
+        if (insertResult.isEmpty) {
+          throw Exception('INSERT retornó lista vacía');
+        }
         
         print('[SESSION_SERVICE] INSERT exitoso');
       }
       
-      // 3) Verificar estado final
-      final final_state = await _supabase
-          .from('session_participants')
-          .select('*')
-          .eq('session_id', sessionId)
-          .eq('user_id', userId)
-          .maybeSingle();
-      
-      print('[SESSION_SERVICE] acceptUser COMPLETADO - final_state: $final_state');
+      print('[SESSION_SERVICE] acceptUser COMPLETADO exitosamente');
     } catch (e) {
       print('[SESSION_SERVICE] ❌ Error en acceptUser: $e');
       rethrow;

@@ -149,7 +149,7 @@ router.post('/join', authenticateUser, async (req, res, next) => {
         // --- MANEJO DE REUNIONES PROGRAMADAS (VIRTUALES) ---
         if ((meetingError || !meeting) && channelName.startsWith('sched-')) {
             logger.info(`🔄 Activando reunión programada: ${channelName}`);
-            
+
             // Extraer UUID correcto: sched-[UUID]-YYYY-MM-DD
             const match = channelName.match(/^sched-([a-f0-9\-]{36})-(.*)$/);
             const scheduleId = match ? match[1] : null;
@@ -168,11 +168,11 @@ router.post('/join', authenticateUser, async (req, res, next) => {
                 // Parsear la fecha del channelName para saber el día de clase
                 const schedDateMatch = channelName.match(/-(\d{4}-\d{2}-\d{2})$/);
                 const scheduleDateStr = schedDateMatch ? schedDateMatch[1] : new Date().toISOString().split('T')[0];
-                
+
                 // Determinar el expires_at correcto basado en el end_time de la clase programada
                 const now = new Date();
                 let expirationDateStr = scheduleDateStr;
-                
+
                 // Si la clase cruza la medianoche y estamos en el día de inicio, expires_at es mañana
                 if (schedule.start_time > schedule.end_time) {
                     const currentUtcDate = now.toISOString().split('T')[0];
@@ -181,7 +181,7 @@ router.post('/join', authenticateUser, async (req, res, next) => {
                         expirationDateStr = tomorrow.toISOString().split('T')[0];
                     }
                 }
-                
+
                 const expiresAt = new Date(`${expirationDateStr}T${schedule.end_time}Z`);
 
                 const { data: newMeeting, error: createError } = await supabase
@@ -297,19 +297,19 @@ router.get('/active', authenticateUser, async (req, res, next) => {
         // --- PROCESAR E INSERTAR HORARIOS ACTIVOS "JUST IN TIME" ---
         const now = new Date();
         const currentDay = now.getUTCDay(); // 0 (Dom) - 6 (Sab) en UTC puro
-        
+
         // Formateamos la hora en UTC puro (HH:MM:SS)
         const utcHours = now.getUTCHours().toString().padStart(2, '0');
         const utcMinutes = now.getUTCMinutes().toString().padStart(2, '0');
         const utcSeconds = now.getUTCSeconds().toString().padStart(2, '0');
         const currentTime = `${utcHours}:${utcMinutes}:${utcSeconds}`;
-        
+
         // Fecha de hoy en formato YYYY-MM-DD
         const todayStr = now.toISOString().split('T')[0];
 
         // Obtenemos los horarios de hoy y ayer (por si la clase cruza la medianoche UTC)
         const previousDay = (currentDay + 6) % 7;
-        
+
         const { data: allSchedules } = await supabase
             .from('class_schedules')
             .select('*')
@@ -324,7 +324,7 @@ router.get('/active', authenticateUser, async (req, res, next) => {
                 const start = schedule.start_time;
                 const end = schedule.end_time;
                 let isActiveNow = false;
-                
+
                 if (start <= end) {
                     // Caso normal: no cruza la medianoche
                     if (schedule.day_of_week === currentDay && currentTime >= start && currentTime <= end) {
@@ -338,7 +338,7 @@ router.get('/active', authenticateUser, async (req, res, next) => {
                         isActiveNow = true;
                     }
                 }
-                
+
                 if (isActiveNow) {
                     const isNextDay = schedule.day_of_week === previousDay;
                     let scheduleDateStr = todayStr;
@@ -348,7 +348,7 @@ router.get('/active', authenticateUser, async (req, res, next) => {
                     }
                     const virtualChannelName = `sched-${schedule.id}-${scheduleDateStr}`;
                     activeVirtualChannels.push(virtualChannelName);
-                    
+
                     // Calcular la fecha correcta para expiresAt
                     let expirationDateStr = isNextDay ? todayStr : scheduleDateStr;
                     if (!isNextDay && start > end) {
@@ -356,7 +356,7 @@ router.get('/active', authenticateUser, async (req, res, next) => {
                         const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
                         expirationDateStr = tomorrow.toISOString().split('T')[0];
                     }
-                    
+
                     virtualToScheduleMap[virtualChannelName] = {
                         schedule,
                         expiresAt: expirationDateStr + 'T' + schedule.end_time + 'Z'
@@ -458,7 +458,7 @@ router.get('/active', authenticateUser, async (req, res, next) => {
 
         // Obtener nombres de los creadores y sus roles para las reuniones
         const creatorIds = [...new Set(filteredMeetings.map(m => m.creator_id))];
-        
+
         const creatorMap = {};
         const roleMap = {};
 
@@ -475,7 +475,7 @@ router.get('/active', authenticateUser, async (req, res, next) => {
                 });
             }
         }
-        
+
         res.json({
             meetings: filteredMeetings.map(meeting => ({
                 id: meeting.id,
@@ -633,17 +633,32 @@ router.post('/:meetingId/entered-call', authenticateUser, async (req, res, next)
         const { meetingId } = req.params;
         const userId = req.user.id;
 
+        const payload = {
+            meeting_id: meetingId,
+            user_id: userId,
+            last_heartbeat: new Date().toISOString(),
+            left_at: null,
+            joined_at: new Date().toISOString()
+        };
+
         const { error } = await supabase
             .from('meeting_participants')
-            .update({
-                last_heartbeat: new Date().toISOString(),
-                left_at: null
-            })
-            .eq('meeting_id', meetingId)
-            .eq('user_id', userId);
+            .upsert(payload, {
+                onConflict: 'meeting_id,user_id'
+            });
 
-        if (error) throw error;
-        res.json({ success: true });
+        if (error) {
+            logger.error('❌ entered-call error', error);
+            throw error;
+        }
+
+        logger.info(`🟢 ${userId} marcado IN_CALL en reunión ${meetingId}`);
+
+        res.json({
+            success: true,
+            state: 'in_call'
+        });
+
     } catch (error) {
         next(error);
     }
@@ -658,17 +673,32 @@ router.post('/:meetingId/back-to-waiting-room', authenticateUser, async (req, re
         const { meetingId } = req.params;
         const userId = req.user.id;
 
+        const payload = {
+            meeting_id: meetingId,
+            user_id: userId,
+            last_heartbeat: null,
+            left_at: null,
+            joined_at: new Date().toISOString()
+        };
+
         const { error } = await supabase
             .from('meeting_participants')
-            .update({
-                last_heartbeat: null,
-                left_at: null
-            })
-            .eq('meeting_id', meetingId)
-            .eq('user_id', userId);
+            .upsert(payload, {
+                onConflict: 'meeting_id,user_id'
+            });
 
-        if (error) throw error;
-        res.json({ success: true });
+        if (error) {
+            logger.error('❌ back-to-waiting-room error', error);
+            throw error;
+        }
+
+        logger.info(`🟡 ${userId} marcado WAITING en reunión ${meetingId}`);
+
+        res.json({
+            success: true,
+            state: 'waiting'
+        });
+
     } catch (error) {
         next(error);
     }
@@ -729,7 +759,7 @@ router.post('/:meetingId/user-left', async (req, res, next) => {
 
         // Registrar el evento de desconexión (informativo solamente)
         // No necesitamos validar participantes porque Agora ya lo hizo
-        
+
         // Responder exitosamente
         res.status(200).json({
             success: true,
@@ -921,7 +951,7 @@ router.get('/:meetingId/students-status', authenticateUser, async (req, res, nex
 
         // 3. Determinar lista de UserIDs a mostrar
         const studentIdsSet = new Set();
-        
+
         // Agregar IDs de participantes actuales (que sean estudiantes)
         if (participants && participants.length > 0) {
             participants.forEach(p => studentIdsSet.add(p.user_id));
@@ -1003,3 +1033,4 @@ router.get('/:meetingId/students-status', authenticateUser, async (req, res, nex
 });
 
 module.exports = router;
+console.log('🔥 NUEVO BACKEND DEPLOYADO');

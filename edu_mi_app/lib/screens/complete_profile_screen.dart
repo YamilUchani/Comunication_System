@@ -30,7 +30,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
         'age': int.parse(_ageController.text.trim()),
         'email': user.email,
         'role': 'student', // Asegurar rol por defecto
-      });
+      }, onConflict: 'user_id');
 
       // Verificar si el usuario ya tiene grupo asignado
       final profile = await Supabase.instance.client

@@ -4,15 +4,31 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ApiService {
-  static String get _baseUrl => dotenv.env['BACKEND_URL'] ?? '';
+  static String get _baseUrl {
+    final url = dotenv.env['BACKEND_URL'];
+    if (url == null || url.isEmpty) {
+      throw Exception(
+        'BACKEND_URL no configurado en .env\n'
+        'Asegúrate de tener BACKEND_URL=http://... en tu archivo .env'
+      );
+    }
+    return url;
+  }
 
   static Future<Map<String, String>> _getHeaders() async {
     final session = Supabase.instance.client.auth.currentSession;
-    if (session == null) throw Exception('No hay sesión activa');
+    if (session == null) {
+      throw Exception('No hay sesión activa en Supabase');
+    }
+
+    final token = session.accessToken;
+    if (token.isEmpty) {
+      throw Exception('Token de acceso de Supabase está vacío');
+    }
 
     return {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer ${session.accessToken}',
+      'Authorization': 'Bearer $token',
     };
   }
 

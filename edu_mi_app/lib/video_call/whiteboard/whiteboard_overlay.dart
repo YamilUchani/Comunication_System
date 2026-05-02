@@ -6,11 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 import 'package:file_picker/file_picker.dart';
-import 'dart:async';
-import 'dart:ffi' hide Size;
-import 'package:ffi/ffi.dart';
-import 'package:win32/win32.dart' as win32;
-import 'package:window_manager/window_manager.dart';import 'whiteboard_model.dart';
+import 'package:window_manager/window_manager.dart';
+
+import 'whiteboard_model.dart';
 import 'whiteboard_service.dart';
 import 'whiteboard_toolbar.dart';
 
@@ -39,7 +37,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
   Map<String, ui.Image> _decodedImages = {};
   bool _isTransparent = true;
   bool _isPaused = false; // ⏸️ Evita dibujo si hay menús abiertos
-
+  
   // Herramientas e interacciones
   WhiteboardTool _currentTool = WhiteboardTool.pencil;
   Color _currentColor = Colors.red;
@@ -49,11 +47,10 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
   WhiteboardObject? _currentDrawingObject;
   WhiteboardObject? _selectedObject;
   Offset? _moveStartOffset;
-  DateTime? _lastSyncTime; // ⏱️ Throttle envío de objetos (250ms)
-  Size? _teacherSize; // 📏 Dimensiones pantalla del maestro
+  DateTime? _lastSyncTime;     // ⏱️ Throttle envío de objetos (250ms)
+  Size? _teacherSize;          // 📏 Dimensiones pantalla del maestro
   bool _isPassThrough = false; // 🔓 Modo paso
-  Timer? _mouseTimer;          // 🖱️ Revisa la posición del mouse
-  bool _isMouseOverToolbar = false;
+
   @override
   void initState() {
     super.initState();
@@ -70,7 +67,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
       onModeChanged: _handleRemoteMode,
       onSyncRequest: _handleSyncRequest,
       onBoardInfoChanged: _handleBoardInfo,
-      onBoardClosed: _handleBoardClosed, // 🚪 Nuevo: escuchar evento de cierre
+      onBoardClosed: _handleBoardClosed,  // 🚪 Nuevo: escuchar evento de cierre
     );
 
     // Si es estudiante, solicitar sincronización inicial después de un pequeo retraso para asegurar que el socket conectó
@@ -83,7 +80,6 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
 
   @override
   void dispose() {
-    _mouseTimer?.cancel();
     HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     _service.dispose();
     super.dispose();
@@ -91,13 +87,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
 
   /// 🌆 Handler de teclas LOCAL (cuando la pizarra tiene focus)
   bool _handleKeyEvent(KeyEvent event) {
-    if (event is KeyDownEvent &&
-        event.logicalKey == LogicalKeyboardKey.escape) {
-      if (_isPassThrough && widget.isTeacher) {
-        _togglePassThrough();
-        return true;
-      }
-    }
+    // Por ahora no hace nada, pero se mantiene para futuros atajos de teclado
     return false;
   }
 
@@ -163,9 +153,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
   /// 🚪 Maneja el evento de cierre de pizarra en cascada (maestro cierra → estudiantes cierran)
   void _handleBoardClosed() {
     if (!widget.isTeacher) {
-      print(
-        '🚪 [Estudiante] Maestro cerró la pizarra. Cerrando automáticamente...',
-      );
+      print('🚪 [Estudiante] Maestro cerró la pizarra. Cerrando automáticamente...');
       // Solo cerrar si el widget aún está montado
       if (mounted) {
         widget.onClose();
@@ -178,55 +166,15 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
     if (!Platform.isWindows) return;
     try {
       final next = !_isPassThrough;
-      
-      if (next) {
-        // Al entrar en Modo Paso, comenzamos ignorando los eventos (click-through real)
-        await windowManager.setIgnoreMouseEvents(true, forward: true);
-        _startMouseTimer(); // 🔍 Empezamos a revisar si el mouse toca la barra
-      } else {
-        // Al salir del Modo Paso, detenemos el timer y restauramos el click normal
-        _mouseTimer?.cancel();
-        _isMouseOverToolbar = false;
-        await windowManager.setIgnoreMouseEvents(false);
-      }
-      
+      // forward: true → forward mouse events to apps debajo (verdadero click-through)
+      await windowManager.setIgnoreMouseEvents(next, forward: next);
       setState(() {
         _isPassThrough = next;
-        _isPaused = next; 
+        _isPaused = next; // Pausar dibujo mientras está en Modo Paso
       });
     } catch (e) {
       print('[WhiteboardOverlay] Error toggling pass-through: $e');
     }
-  }
-
-  // 🖱️ TIMER: Evita que la barra de herramientas quede inutilizable
-  void _startMouseTimer() {
-    _mouseTimer?.cancel();
-    _mouseTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
-      if (!mounted || !_isPassThrough) {
-        timer.cancel();
-        return;
-      }
-      
-      // Obtener posición global del mouse en Windows
-      final point = calloc<win32.POINT>();
-      win32.GetCursorPos(point);
-      final mouseX = point.ref.x;
-      // Obtenemos la posición de la ventana para calcular coordenadas relativas
-      final winPos = await windowManager.getPosition();
-      final relX = mouseX - winPos.dx;
-      win32.free(point);
-      
-      // Si el mouse entra a la zona izquierda (0 a 100 px), devolvemos el interact al Flutter (Barra usable)
-      final bool nowOverToolbar = relX >= 0 && relX <= 100;
-      
-      if (nowOverToolbar != _isMouseOverToolbar) {
-        _isMouseOverToolbar = nowOverToolbar;
-        // Si está sobre la barra: NO ignorar clicks -> El usuario puede hacer click en el menú!
-        // Si sale de la barra: IGNORAR clicks -> El usuario puede hacer click en Chrome/juegos debajo
-        await windowManager.setIgnoreMouseEvents(!nowOverToolbar, forward: !nowOverToolbar);
-      }
-    });
   }
 
   // ============== LÓGICA DE IMÁGENES ==============
@@ -245,9 +193,9 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
 
   Future<void> _pickImage() async {
     if (!widget.isTeacher) return;
-
+    
     setState(() => _isPaused = true);
-
+    
     // 🔥 BAJAR la pizarra temporalmente para que el FilePicker de Windows no se quede atascado atrás
     if (Platform.isWindows) {
       await windowManager.setAlwaysOnTop(false);
@@ -261,15 +209,13 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
       if (result != null && result.files.single.path != null) {
         File file = File(result.files.single.path!);
         final bytes = await file.readAsBytes();
-
+        
         // Chequear tamaño (para no reventar base64 websocket) - límite aprox 1MB
         if (bytes.length > 2 * 1024 * 1024) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('⚠️ Imagen demasiado grande. Máximo 2MB.'),
-              ),
-            );
+          if(mounted) {
+             ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('⚠️ Imagen demasiado grande. Máximo 2MB.'))
+             );
           }
         } else {
           final base64String = base64Encode(bytes);
@@ -312,7 +258,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
   // ============== TEXTO LÓGICA ==============
   Future<void> _addText(Offset position) async {
     setState(() => _isPaused = true);
-
+    
     // Bajar temporalmente la pizarra para poder interactuar libremente con el pop-up de Flutter
     if (Platform.isWindows) await windowManager.setAlwaysOnTop(false);
 
@@ -330,15 +276,15 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, null),
-                child: const Text('Cancelar'),
+                child: const Text('Cancelar')
               ),
               TextButton(
                 onPressed: () => Navigator.pop(context, inputText),
-                child: const Text('Aceptar'),
+                child: const Text('Aceptar')
               ),
             ],
           );
-        },
+        }
       );
 
       if (text != null && text.isNotEmpty) {
@@ -350,21 +296,19 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
           color: _currentColor,
           fontSize: 24.0,
         );
-        setState(() {
-          _objects.add(obj);
-        });
+        setState(() { _objects.add(obj); });
         _service.sendObject(obj);
       }
     } finally {
-      if (Platform.isWindows) await windowManager.setAlwaysOnTop(true);
-      setState(() => _isPaused = false);
+       if (Platform.isWindows) await windowManager.setAlwaysOnTop(true);
+       setState(() => _isPaused = false);
     }
   }
 
   // ============== GESTOS =================
   void _onPanStart(DragStartDetails details) {
     if (!widget.isTeacher || _isPaused) return;
-
+    
     final RenderBox renderBox = context.findRenderObject() as RenderBox;
     final pos = renderBox.globalToLocal(details.globalPosition);
 
@@ -372,9 +316,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
       // Buscar objeto presionado y borrar
       final tappedObj = _findHitObject(pos);
       if (tappedObj != null) {
-        setState(() {
-          _objects.remove(tappedObj);
-        });
+        setState(() { _objects.remove(tappedObj); });
         _service.removeObject(tappedObj.id);
       }
       return;
@@ -383,7 +325,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
     if (_currentTool == WhiteboardTool.move) {
       _selectedObject = _findHitObject(pos);
       if (_selectedObject != null) {
-        _moveStartOffset = pos - _selectedObject!.offset;
+         _moveStartOffset = pos - _selectedObject!.offset;
       }
       return;
     }
@@ -402,9 +344,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
         color: _currentColor,
         strokeWidth: _strokeWidth,
       );
-      setState(() {
-        _objects.add(_currentDrawingObject!);
-      });
+      setState(() { _objects.add(_currentDrawingObject!); });
     } else if (_currentTool == WhiteboardTool.line) {
       _currentDrawingObject = LineObject(
         id: id,
@@ -413,9 +353,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
         color: _currentColor,
         strokeWidth: _strokeWidth,
       );
-      setState(() {
-        _objects.add(_currentDrawingObject!);
-      });
+      setState(() { _objects.add(_currentDrawingObject!); });
     } else if (_currentTool == WhiteboardTool.arrow) {
       _currentDrawingObject = ArrowObject(
         id: id,
@@ -424,9 +362,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
         color: _currentColor,
         strokeWidth: _strokeWidth,
       );
-      setState(() {
-        _objects.add(_currentDrawingObject!);
-      });
+      setState(() { _objects.add(_currentDrawingObject!); });
     } else if (_currentTool == WhiteboardTool.rectangle) {
       _currentDrawingObject = RectangleObject(
         id: id,
@@ -434,9 +370,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
         color: _currentColor,
         strokeWidth: _strokeWidth,
       );
-      setState(() {
-        _objects.add(_currentDrawingObject!);
-      });
+      setState(() { _objects.add(_currentDrawingObject!); });
     }
 
     // 🚀 Enviar el punto inicial inmediatamente
@@ -452,16 +386,13 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
     final RenderBox renderBox = context.findRenderObject() as RenderBox;
     final pos = renderBox.globalToLocal(details.globalPosition);
 
-    if (_currentTool == WhiteboardTool.move &&
-        _selectedObject != null &&
-        _moveStartOffset != null) {
+    if (_currentTool == WhiteboardTool.move && _selectedObject != null && _moveStartOffset != null) {
       setState(() {
         _selectedObject!.offset = pos - _moveStartOffset!;
       });
       // 🚀 Sincronizar movimiento en tiempo real (limitado a 1 vez cada 250ms para no saturar Supabase)
       final now = DateTime.now();
-      if (_lastSyncTime == null ||
-          now.difference(_lastSyncTime!).inMilliseconds > 250) {
+      if (_lastSyncTime == null || now.difference(_lastSyncTime!).inMilliseconds > 250) {
         _service.updateObject(_selectedObject!);
         _lastSyncTime = now;
       }
@@ -480,18 +411,14 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
       } else if (_currentDrawingObject is RectangleObject) {
         final rBox = _currentDrawingObject as RectangleObject;
         // Permite dibujar hacia atrás
-        final startPos = Offset(
-          rBox.rect.left,
-          rBox.rect.top,
-        ); // simplificación
-        rBox.rect = Rect.fromPoints(startPos, pos);
+        final startPos = Offset(rBox.rect.left, rBox.rect.top); // simplificación
+        rBox.rect = Rect.fromPoints(startPos, pos); 
       }
     });
 
     // 🚀 Sincronización en tiempo real (animar el dibujo a los estudiantes, máx 4 veces por segundo)
     final now = DateTime.now();
-    if (_lastSyncTime == null ||
-        now.difference(_lastSyncTime!).inMilliseconds > 250) {
+    if (_lastSyncTime == null || now.difference(_lastSyncTime!).inMilliseconds > 250) {
       _service.updateObject(_currentDrawingObject!);
       _lastSyncTime = now;
     }
@@ -509,9 +436,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
     }
 
     if (_currentDrawingObject != null) {
-      _service.updateObject(
-        _currentDrawingObject!,
-      ); // ✨ Finalizar actualización
+      _service.updateObject(_currentDrawingObject!); // ✨ Finalizar actualización
       _currentDrawingObject = null;
     }
   }
@@ -556,11 +481,10 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
     // 🎓 Ajuste milimétrico de la pantalla para los Estudiantes
     if (!widget.isTeacher) {
       final safeTeacherSize = _teacherSize ?? const Size(1920, 1080);
-
+      
       canvasLayer = FittedBox(
         fit: BoxFit.contain,
-        alignment: Alignment
-            .center, // Garantiza el mismo comportamiento que renderModeFit
+        alignment: Alignment.center, // Garantiza el mismo comportamiento que renderModeFit
         child: SizedBox(
           width: safeTeacherSize.width,
           height: safeTeacherSize.height,
@@ -569,6 +493,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
       );
     }
 
+
     return Container(
       color: _isTransparent ? Colors.transparent : Colors.white,
       child: Stack(
@@ -576,8 +501,7 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
           // 🎨 LIENZO DE PINTURA - Usar AbsorbPointer para bloquear eventos completamente en modo PASO
           Positioned.fill(
             child: AbsorbPointer(
-              absorbing:
-                  _isPassThrough, // 🔓 Bloquear toques completamente cuando modo paso está activo
+              absorbing: _isPassThrough, // 🔓 Bloquear toques completamente cuando modo paso está activo
               child: IgnorePointer(
                 ignoring: _isPassThrough,
                 child: canvasLayer,
@@ -591,51 +515,50 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
               left: 20,
               top: 80,
               bottom: 80,
-              child: Material(
-                color: Colors.transparent,
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: WhiteboardToolbar(
-                    currentTool: _currentTool,
-                    onToolChanged: (t) => setState(() => _currentTool = t),
-                    currentColor: _currentColor,
-                    onColorChanged: (c) => setState(() => _currentColor = c),
-                    strokeWidth: _strokeWidth,
-                    onStrokeWidthChanged: (w) =>
-                        setState(() => _strokeWidth = w),
-                    onClear: () {
-                      setState(() {
-                        _objects.clear();
-                        _decodedImages.clear();
-                      });
-                      _service.clearBoard();
-                    },
-                    onPickImage: _pickImage,
-                    isTransparent: _isTransparent,
-                    onModeChanged: (val) {
-                      setState(() => _isTransparent = val);
-                      _service.changeMode(val);
-                    },
-                    onClose: () {
-                      // 🧹 Limpiar y ocultar la pizarra para todos los estudiantes antes de cerrarla
-                      setState(() {
-                        _objects.clear();
-                        _decodedImages.clear();
-                        _isTransparent = true;
-                      });
-                      _service.clearBoard();
-                      _service.changeMode(true);
-
-                      // 🚪 IMPORTANTE: Notificar a estudiantes que cierren ANTES de cerrar el maestro
-                      _service.notifyBoardClosed();
-
-                      // Esperar un poco para que todos reciban el evento antes de cerrar localmente
-                      Future.delayed(const Duration(milliseconds: 200), () {
-                        widget.onClose();
-                      });
-                    },
-                    isPassThrough: _isPassThrough,
-                    onPassThroughToggled: _togglePassThrough,
+              child: AbsorbPointer(
+                absorbing: true, // 🔒 BLOQUEAR completamente eventos en la barra, incluso en pass-through
+                child: Material(
+                  color: Colors.transparent,
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: WhiteboardToolbar(
+                currentTool: _currentTool,
+                onToolChanged: (t) => setState(() => _currentTool = t),
+                currentColor: _currentColor,
+                onColorChanged: (c) => setState(() => _currentColor = c),
+                strokeWidth: _strokeWidth,
+                onStrokeWidthChanged: (w) => setState(() => _strokeWidth = w),
+                onClear: () {
+                  setState(() { _objects.clear(); _decodedImages.clear(); });
+                  _service.clearBoard();
+                },
+                onPickImage: _pickImage,
+                isTransparent: _isTransparent,
+                onModeChanged: (val) {
+                  setState(() => _isTransparent = val);
+                  _service.changeMode(val);
+                },
+                onClose: () {
+                  // 🧹 Limpiar y ocultar la pizarra para todos los estudiantes antes de cerrarla
+                  setState(() {
+                    _objects.clear();
+                    _decodedImages.clear();
+                    _isTransparent = true;
+                  });
+                  _service.clearBoard();
+                  _service.changeMode(true);
+                  
+                  // 🚪 IMPORTANTE: Notificar a estudiantes que cierren ANTES de cerrar el maestro
+                  _service.notifyBoardClosed();
+                  
+                  // Esperar un poco para que todos reciban el evento antes de cerrar localmente
+                  Future.delayed(const Duration(milliseconds: 200), () {
+                    widget.onClose();
+                  });
+                },
+                isPassThrough: _isPassThrough,
+                onPassThroughToggled: _togglePassThrough,
+                    ),
                   ),
                 ),
               ),
@@ -649,16 +572,11 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
               right: 0,
               child: Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 8,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                   decoration: BoxDecoration(
                     color: Colors.orange.withOpacity(0.85),
                     borderRadius: BorderRadius.circular(24),
-                    boxShadow: const [
-                      BoxShadow(color: Colors.black38, blurRadius: 8),
-                    ],
+                    boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 8)],
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
@@ -666,12 +584,8 @@ class _WhiteboardOverlayState extends State<WhiteboardOverlay> {
                       Icon(Icons.mouse, color: Colors.white, size: 18),
                       SizedBox(width: 8),
                       Text(
-                        'Modo Paso: Activo — Haz Alt+Tab aquí y presiona ESC para dibujar',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
+                        'Modo Paso activo — Usa la barra de herramientas para volver a dibujar',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                       ),
                     ],
                   ),
@@ -688,7 +602,10 @@ class _WhiteboardPainter extends CustomPainter {
   final List<WhiteboardObject> objects;
   final Map<String, ui.Image> images;
 
-  _WhiteboardPainter({required this.objects, required this.images});
+  _WhiteboardPainter({
+    required this.objects,
+    required this.images,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -716,17 +633,14 @@ class _WhiteboardPainter extends CustomPainter {
         paint.strokeWidth = obj.strokeWidth;
         // Dibuja la línea principal
         canvas.drawLine(obj.start, obj.end, paint);
-
+        
         // Dibuja la punta de flecha
         final double arrowLength = 15.0 + obj.strokeWidth;
         final double arrowAngle = pi / 6; // 30 grados
-
+        
         // Ángulo de la línea
-        final double angle = atan2(
-          obj.end.dy - obj.start.dy,
-          obj.end.dx - obj.start.dx,
-        );
-
+        final double angle = atan2(obj.end.dy - obj.start.dy, obj.end.dx - obj.start.dx);
+        
         // Puntos de la cabeza de flecha
         final Offset arrowPoint1 = Offset(
           obj.end.dx - arrowLength * cos(angle - arrowAngle),
@@ -736,18 +650,18 @@ class _WhiteboardPainter extends CustomPainter {
           obj.end.dx - arrowLength * cos(angle + arrowAngle),
           obj.end.dy - arrowLength * sin(angle + arrowAngle),
         );
-
+        
         // Trazar el polígono de la flecha relleno
         final arrowHeadPaint = Paint()
           ..color = obj.color
           ..style = PaintingStyle.fill;
-
+          
         final Path arrowPath = Path()
           ..moveTo(obj.end.dx, obj.end.dy)
           ..lineTo(arrowPoint1.dx, arrowPoint1.dy)
           ..lineTo(arrowPoint2.dx, arrowPoint2.dy)
           ..close();
-
+          
         canvas.drawPath(arrowPath, arrowHeadPaint);
       } else if (obj is RectangleObject) {
         paint.color = obj.color;
@@ -756,11 +670,7 @@ class _WhiteboardPainter extends CustomPainter {
         canvas.drawRect(obj.rect, paint);
       } else if (obj is TextObject) {
         TextSpan span = TextSpan(
-          style: TextStyle(
-            color: obj.color,
-            fontSize: obj.fontSize,
-            fontWeight: FontWeight.bold,
-          ),
+          style: TextStyle(color: obj.color, fontSize: obj.fontSize, fontWeight: FontWeight.bold),
           text: obj.text,
         );
         TextPainter tp = TextPainter(
@@ -770,10 +680,7 @@ class _WhiteboardPainter extends CustomPainter {
         );
         tp.layout();
         // Alinear para que la posición sea el centro/abajo aproximado
-        tp.paint(
-          canvas,
-          Offset(obj.position.dx, obj.position.dy - obj.fontSize),
-        );
+        tp.paint(canvas, Offset(obj.position.dx, obj.position.dy - obj.fontSize));
       } else if (obj is ImageObject) {
         final img = images[obj.id];
         if (img != null) {

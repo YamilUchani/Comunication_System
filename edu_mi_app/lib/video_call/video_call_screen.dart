@@ -100,9 +100,24 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
         .onBroadcast(
           event: 'student_calling',
           callback: (payload) {
-            final studentName = payload['student_name'] as String?;
-            if (studentName != null && mounted) {
-              _showStudentCallNotification(studentName);
+            try {
+              // ✅ Validar estructura del payload
+              if (payload is! Map<String, dynamic>) {
+                print('⚠️ Payload inválido en student_calling: no es Map');
+                return;
+              }
+              
+              final studentName = payload['student_name'];
+              if (studentName is! String || studentName.isEmpty) {
+                print('⚠️ student_name inválido o vacío en payload');
+                return;
+              }
+              
+              if (mounted) {
+                _showStudentCallNotification(studentName);
+              }
+            } catch (e) {
+              print('❌ Error procesando student_calling: $e');
             }
           },
         )
@@ -1023,18 +1038,32 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
 
   @override
   void dispose() {
-    _studentsTimer?.cancel();
+    print('🧹 [VIDEO_CALL_SCREEN] Iniciando dispose...');
+    
+    // ✅ Cancelar todos los timers
     _autoStudentRefreshTimer?.cancel();
+    _studentsTimer?.cancel();
+    print('✅ Timers cancelados');
+    
+    // ✅ Unsubscribir del canal realtime
     _meetingChannel?.unsubscribe();
+    print('✅ Meeting channel unsubscribed');
+    
+    // ✅ Limpiar controller
+    try {
+      controller.leaveAndDispose();
+      print('✅ VideoCallController disposed');
+    } catch (e) {
+      print('⚠️ Error disposing controller: $e');
+    }
+    
+    // ✅ Limpiar observadores
+    WidgetsBinding.instance.removeObserver(this);
     if (Platform.isWindows) {
       windowManager.removeListener(this);
     }
-    WidgetsBinding.instance.removeObserver(this);
-    // leaveAndDispose ya fue llamado en _exitMeeting() o didRequestAppExit()
-    // controller.dispose() ahora es sincrónico y seguro llamar múltiples veces
-    controller.dispose();
-    screenController?.dispose();
-    chatController.dispose();
+    
+    print('🧹 [VIDEO_CALL_SCREEN] Dispose completado');
     super.dispose();
   }
 }
