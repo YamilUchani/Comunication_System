@@ -244,53 +244,56 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
       builder: (BuildContext context) {
         return Dialog(
           backgroundColor: Colors.grey[900],
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  '¿Salir completamente de la clase?',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(15),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    '¿Salir de la clase?',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 25),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey[800],
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  const SizedBox(height: 15),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.grey[800],
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: const Text('Cancelar', style: TextStyle(fontSize: 12)),
                         ),
-                        child: const Text('Cancelar', style: TextStyle(fontSize: 13)),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          exit(0);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red[600],
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            exit(0);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red[600],
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: const Text('Salir', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                         ),
-                        child: const Text('Salir', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
