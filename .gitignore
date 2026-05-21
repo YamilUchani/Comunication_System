@@ -1,0 +1,10 @@
+/node_modules/
+/App_Supervisor/server/node_modules/
+*.log
+*.tmp
+*.lock
+.env
+*.secret
+.DS_Store
+.idea/
+.vscode/
