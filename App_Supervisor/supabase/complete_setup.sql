@@ -30,11 +30,13 @@ CREATE INDEX IF NOT EXISTS idx_parent_students_student ON public.parent_students
 ALTER TABLE public.parent_students ENABLE ROW LEVEL SECURITY;
 
 -- Los padres pueden ver sus propios vínculos
+DROP POLICY IF EXISTS "Parents can view their own links" ON public.parent_students;
 CREATE POLICY "Parents can view their own links"
   ON public.parent_students FOR SELECT
   USING (auth.uid() = parent_id);
 
 -- El admin usa service_role key, estas policies no lo afectan
+DROP POLICY IF EXISTS "Admins can manage parent_students" ON public.parent_students;
 CREATE POLICY "Admins can manage parent_students"
   ON public.parent_students FOR ALL
   USING (auth.role() = 'service_role');
