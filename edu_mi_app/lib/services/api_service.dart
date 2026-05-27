@@ -525,6 +525,65 @@ class ApiService {
     }
   }
 
+  static Future<void> leaveMeeting(String meetingId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/meetings/$meetingId/leave'),
+      headers: await _getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      print('⚠️ Error leaving meeting: ${response.body}');
+    }
+  }
+
+  // ==========================================
+  // PARENT-STUDENT MANAGEMENT (Admin)
+  // ==========================================
+
+  static Future<List<dynamic>> getParents() async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/admin/parents'),
+      headers: await _getHeaders(),
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body)['parents'] ?? [];
+    } else {
+      throw Exception('Error fetching parents: ${response.body}');
+    }
+  }
+
+  static Future<void> linkStudentToParent(String parentId, String studentId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/admin/parents/$parentId/students'),
+      headers: await _getHeaders(),
+      body: jsonEncode({'student_id': studentId}),
+    );
+    if (response.statusCode != 201) {
+      throw Exception('Error linking student: ${response.body}');
+    }
+  }
+
+  static Future<void> unlinkStudentFromParent(String parentId, String studentId) async {
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/admin/parents/$parentId/students/$studentId'),
+      headers: await _getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Error unlinking student: ${response.body}');
+    }
+  }
+
+  static Future<List<dynamic>> searchStudents(String query) async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/admin/students/search?q=$query'),
+      headers: await _getHeaders(),
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body)['students'] ?? [];
+    } else {
+      throw Exception('Error searching students: ${response.body}');
+    }
+  }
+
   static Future<List<dynamic>> getStudentsStatus(String meetingId) async {
     final response = await http.get(
       Uri.parse('$_baseUrl/meetings/$meetingId/students-status'),

@@ -84,8 +84,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
     // 👥 Auto-load student list immediately (before teacher opens panel)
     print('⏱️ Iniciando auto-polling de estudiantes (10 segundos)');
     _autoStudentRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (mounted && !_showStudents) {
-        _fetchStudentsStatus();
+      if (mounted) {
+        _fetchStudentsStatus(silent: true);
       }
     });
   }
@@ -243,6 +243,18 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
         event: 'kick_student',
         payload: {'user_id': studentId},
       );
+
+      // Marcar como left en la BD
+      try {
+        await Supabase.instance.client
+            .from('meeting_participants')
+            .update({'left_at': DateTime.now().toIso8601String()})
+            .eq('meeting_id', meetingId)
+            .eq('user_id', studentId);
+        print('✅ meeting_participants actualizado para kick');
+      } catch (dbError) {
+        print('⚠️ Error actualizando meeting_participants en kick: $dbError');
+      }
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -366,8 +378,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
     });
   }
 
-  Future<void> _fetchStudentsStatus() async {
-    if (widget.meetingId == null || !mounted || !_showStudents) return;
+  Future<void> _fetchStudentsStatus({bool silent = false}) async {
+    if (widget.meetingId == null || !mounted) return;
+    if (!silent && !_showStudents) return;
     try {
       final statuses = await ApiService.getStudentsStatus(widget.meetingId!);
       if (mounted) {

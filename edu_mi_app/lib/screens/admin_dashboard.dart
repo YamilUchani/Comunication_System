@@ -19,6 +19,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   List<dynamic>? _activeMeetings;
   List<dynamic>? _groupsWithMembers;
   List<dynamic>? _unassignedUsers;
+  List<dynamic>? _parents;
   bool _isLoading = true;
 
   @override
@@ -37,12 +38,20 @@ class _AdminDashboardState extends State<AdminDashboard> {
       print('📊 Admin Dashboard - Meetings count: ${meetings.length}');
       print('📊 Admin Dashboard - Groups: ${groupsData['groups']}');
 
+      List<dynamic> parents = [];
+      try {
+        parents = await ApiService.getParents();
+      } catch (e) {
+        print('⚠️ Error cargando padres (tabla parent_students puede no existir): $e');
+      }
+
       if (mounted) {
         setState(() {
           _stats = stats;
           _activeMeetings = meetings;
           _groupsWithMembers = groupsData['groups'];
           _unassignedUsers = groupsData['unassigned'];
+          _parents = parents;
           _isLoading = false;
         });
       }
@@ -117,6 +126,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
                   // Sección de Grupos (Expandible)
                   _buildGroupsSection(),
+
+                  const Divider(height: 30),
+
+                  // Sección de Padres (Expandible)
+                  _buildParentsSection(),
                 ],
               ),
             ),
@@ -413,41 +427,51 @@ class _AdminDashboardState extends State<AdminDashboard> {
             children: [
               const Text('Rol:', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              DropdownButton<String>(
-                value: selectedRole,
-                isExpanded: true,
-                items: const [
-                  DropdownMenuItem(
-                    value: 'student',
-                    child: Row(
-                      children: [
-                        Icon(Icons.person, color: Colors.blue),
-                        SizedBox(width: 8),
-                        Text('Estudiante'),
-                      ],
-                    ),
-                  ),
-                  DropdownMenuItem(
-                    value: 'teacher',
-                    child: Row(
-                      children: [
-                        Icon(Icons.school, color: Colors.red),
-                        SizedBox(width: 8),
-                        Text('Profesor'),
-                      ],
-                    ),
-                  ),
-                  DropdownMenuItem(
-                    value: 'administrator',
-                    child: Row(
-                      children: [
-                        Icon(Icons.admin_panel_settings, color: Colors.purple),
-                        SizedBox(width: 8),
-                        Text('Administrador'),
-                      ],
-                    ),
-                  ),
-                ],
+                  DropdownButton<String>(
+                    value: selectedRole,
+                    isExpanded: true,
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'student',
+                        child: Row(
+                          children: [
+                            Icon(Icons.person, color: Colors.blue),
+                            SizedBox(width: 8),
+                            Text('Estudiante'),
+                          ],
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: 'teacher',
+                        child: Row(
+                          children: [
+                            Icon(Icons.school, color: Colors.red),
+                            SizedBox(width: 8),
+                            Text('Profesor'),
+                          ],
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: 'parent',
+                        child: Row(
+                          children: [
+                            Icon(Icons.family_restroom, color: Colors.teal),
+                            SizedBox(width: 8),
+                            Text('Padre'),
+                          ],
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: 'administrator',
+                        child: Row(
+                          children: [
+                            Icon(Icons.admin_panel_settings, color: Colors.purple),
+                            SizedBox(width: 8),
+                            Text('Administrador'),
+                          ],
+                        ),
+                      ),
+                    ],
                 onChanged: (value) {
                   setState(() {
                     selectedRole = value!;
@@ -594,6 +618,228 @@ class _AdminDashboardState extends State<AdminDashboard> {
         ],
       ),
     );
+  }
+
+  // ═══════════════════════════════════════════
+  // PARENTS SECTION
+  // ═══════════════════════════════════════════
+
+  Widget _buildParentsSection() {
+    return ExpansionTile(
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Vinculación Padres-Hijos (${_parents?.length ?? 0})',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.teal),
+            tooltip: 'Recargar',
+            onPressed: () async {
+              try {
+                final parents = await ApiService.getParents();
+                if (mounted) setState(() => _parents = parents);
+              } catch (e) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+              }
+            },
+          ),
+        ],
+      ),
+      initiallyExpanded: true,
+      children: [
+        if (_parents == null || _parents!.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text('No hay padres registrados. Los padres se registran desde la app EduCoParent.'),
+          )
+        else
+          ..._parents!.map((p) => _buildParentTile(p)),
+      ],
+    );
+  }
+
+  Widget _buildParentTile(dynamic parent) {
+    final children = parent['children'] as List<dynamic>? ?? [];
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ExpansionTile(
+        leading: const CircleAvatar(
+          backgroundColor: Colors.teal,
+          child: Icon(Icons.family_restroom, color: Colors.white),
+        ),
+        title: Text(
+          parent['name'] ?? 'Sin nombre',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text('${parent['email'] ?? ''}  •  ${children.length} hijo(s)'),
+        children: [
+          if (children.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text('Sin hijos vinculados aún', style: TextStyle(color: Colors.grey)),
+            )
+          else
+            ...children.map((c) => ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: Colors.blue,
+                child: Icon(Icons.person, color: Colors.white, size: 18),
+              ),
+              title: Text(c['name'] ?? 'Desconocido'),
+              subtitle: Text('${c['email'] ?? ''}  •  ${c['group'] ?? 'Sin grupo'}'),
+              trailing: IconButton(
+                icon: const Icon(Icons.link_off, color: Colors.red, size: 20),
+                tooltip: 'Desvincular',
+                onPressed: () => _showUnlinkConfirm(parent, c),
+              ),
+            )),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: TextButton.icon(
+              icon: const Icon(Icons.person_add, color: Colors.teal),
+              label: const Text('Vincular Estudiante'),
+              onPressed: () => _showLinkStudentDialog(parent),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showLinkStudentDialog(dynamic parent) async {
+    final searchController = TextEditingController();
+    List<dynamic> searchResults = [];
+    bool searching = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Vincular estudiante a ${parent['name']}'),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: searchController,
+                  decoration: const InputDecoration(
+                    labelText: 'Buscar estudiante',
+                    hintText: 'Nombre o correo',
+                    prefixIcon: Icon(Icons.search),
+                  ),
+                  onChanged: (val) async {
+                    if (val.trim().isEmpty) return;
+                    setDialogState(() => searching = true);
+                    try {
+                      final results = await ApiService.searchStudents(val);
+                      setDialogState(() {
+                        searchResults = results;
+                        searching = false;
+                      });
+                    } catch (e) {
+                      setDialogState(() => searching = false);
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                if (searching)
+                  const CircularProgressIndicator()
+                else if (searchResults.isEmpty && searchController.text.isNotEmpty)
+                  const Text('Sin resultados', style: TextStyle(color: Colors.grey))
+                else
+                  SizedBox(
+                    height: 300,
+                    child: ListView.builder(
+                      itemCount: searchResults.length,
+                      itemBuilder: (context, index) {
+                        final student = searchResults[index];
+                        final alreadyLinked = (parent['children'] as List).any((c) => c['id'] == student['user_id']);
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: alreadyLinked ? Colors.green : Colors.blue,
+                            child: Text(
+                              (student['full_name'] as String?)?.substring(0, 1).toUpperCase() ?? '?',
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                          ),
+                          title: Text(student['full_name'] ?? 'Sin nombre'),
+                          subtitle: Text('${student['email'] ?? ''}  •  ${student['group_name'] ?? 'Sin grupo'}'),
+                          trailing: alreadyLinked
+                              ? const Chip(label: Text('Vinculado', style: TextStyle(fontSize: 10)), backgroundColor: Colors.green)
+                              : ElevatedButton(
+                                  child: const Text('Vincular'),
+                                  onPressed: () async {
+                                    try {
+                                      await ApiService.linkStudentToParent(parent['id'], student['user_id']);
+                                      if (dialogContext.mounted) Navigator.pop(dialogContext);
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                          content: Text('${student['full_name']} vinculado correctamente'),
+                                        ));
+                                        final parents = await ApiService.getParents();
+                                        if (mounted) setState(() => _parents = parents);
+                                      }
+                                    } catch (e) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                                      }
+                                    }
+                                  },
+                                ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showUnlinkConfirm(dynamic parent, dynamic child) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Desvincular estudiante'),
+        content: Text('¿Desvincular a ${child['name']} de ${parent['name']}?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Desvincular'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await ApiService.unlinkStudentFromParent(parent['id'], child['id']);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('${child['name']} desvinculado de ${parent['name']}'),
+          ));
+          final parents = await ApiService.getParents();
+          if (mounted) setState(() => _parents = parents);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        }
+      }
+    }
   }
 
   Widget _buildMeetingCard(dynamic meeting) {
@@ -1091,7 +1337,7 @@ class _UserManagementSheetState extends State<UserManagementSheet> {
             children: [
               DropdownButtonFormField<String>(
                 value: selectedRole,
-                items: ['student', 'teacher', 'administrator']
+                items: ['student', 'teacher', 'parent', 'administrator']
                     .map(
                       (r) => DropdownMenuItem(
                         value: r,

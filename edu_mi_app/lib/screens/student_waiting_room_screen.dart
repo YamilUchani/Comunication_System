@@ -78,6 +78,9 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
                   duration: Duration(seconds: 3),
                 ),
               );
+              if (widget.meetingId != null) {
+                ApiService.leaveMeeting(widget.meetingId!);
+              }
               Future.delayed(const Duration(seconds: 1), () => exit(0));
             }
           },
@@ -110,6 +113,9 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
                   duration: Duration(seconds: 3),
                 ),
               );
+              if (widget.meetingId != null) {
+                ApiService.leaveMeeting(widget.meetingId!);
+              }
               Future.delayed(const Duration(seconds: 2), () => exit(0));
             }
           },
@@ -279,6 +285,9 @@ class _StudentWaitingRoomScreenState extends State<StudentWaitingRoomScreen> wit
                         child: ElevatedButton(
                           onPressed: () {
                             Navigator.pop(context);
+                            if (widget.meetingId != null) {
+                              ApiService.leaveMeeting(widget.meetingId!);
+                            }
                             exit(0);
                           },
                           style: ElevatedButton.styleFrom(
