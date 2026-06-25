@@ -292,101 +292,173 @@ router.delete('/groups/:groupName', authenticateUser, requireAdmin, async (req, 
 });
 
 /**
+ * GET /api/admin/parents/debug
+ * Diagnóstico detallado del sistema de padres
+ */
+router.get('/parents/debug', authenticateUser, requireAdmin, async (req, res) => {
+    try {
+        console.log('🔍 DEBUG /api/admin/parents/debug');
+        
+        const results = {};
+
+        // 1. Info del admin autenticado
+        results.admin = {
+            user_id: req.user.id,
+            email: req.user.email,
+            role: req.user.role,
+            profile: req.user.profile
+        };
+        console.log('1️⃣ Admin info:', results.admin);
+
+        // 2. Verificar si existe la tabla parent_profiles
+        const { data: tableCheck, error: tableError } = await supabase
+            .from('parent_profiles')
+            .select('count(*)', { count: 'exact', head: true });
+        results.tableExists = { exists: !tableError, error: tableError };
+        console.log('2️⃣ Table check:', results.tableExists);
+
+        // 3. Contar registros en parent_profiles
+        const { data: parentCount, error: countError } = await supabase
+            .from('parent_profiles')
+            .select('id, full_name, email', { count: 'exact' });
+        results.parentCount = { 
+            count: parentCount?.length || 0, 
+            error: countError,
+            firstFew: parentCount?.slice(0, 5) || []
+        };
+        console.log('3️⃣ Parent profiles count:', results.parentCount);
+
+        // 4. Contar registros en parent_students
+        const { data: linkCount, error: linkCountError } = await supabase
+            .from('parent_students')
+            .select('parent_id, student_id');
+        results.linkCount = { 
+            count: linkCount?.length || 0, 
+            error: linkCountError 
+        };
+        console.log('4️⃣ Parent_students count:', results.linkCount);
+
+        // 5. Buscar el perfil del admin en profiles
+        const { data: adminProfile, error: adminProfileError } = await supabase
+            .from('profiles')
+            .select('user_id, role, email, full_name')
+            .eq('user_id', req.user.id)
+            .maybeSingle();
+        results.adminProfile = { profile: adminProfile, error: adminProfileError };
+        console.log('5️⃣ Admin profile check:', results.adminProfile);
+
+        // 6. Simular la consulta ORIGINAL del endpoint (para ver si falla)
+        const { data: directQuery, error: directError } = await supabase
+            .from('parent_profiles')
+            .select('id, full_name, email, parent_age, relationship_to_student, created_at')
+            .order('created_at', { ascending: false });
+        results.directQuery = { 
+            rowsReturned: directQuery?.length || 0, 
+            error: directError,
+            data: directQuery?.slice(0, 3) || []
+        };
+        console.log('6️⃣ Direct parent_profiles query:', results.directQuery);
+
+        return res.json(results);
+    } catch (error) {
+        console.error('💥 DEBUG error:', error);
+        return res.status(500).json({ error: { message: 'Error en debug', details: error.message, stack: error.stack } });
+    }
+});
+
+/**
  * GET /api/admin/parents
  * Obtiene lista de padres con sus estudiantes vinculados
  */
-router.get('/parents', authenticateUser, requireAdmin, async (req, res) => {
+router.get('/parents', authenticateUser, requireAdmin, async (req, res, next) => {
     try {
-        console.log('📥 GET /api/admin/parents');
+        console.log('📥 GET /api/admin/parents - parent_profiles');
+        console.log('👤 Admin user:', { id: req.user.id, role: req.user.role });
 
-        // 1. Obtener todos los vínculos de parent_students
+        // Paso 1: Obtener parent_students
         const { data: links, error: linksError } = await supabase
             .from('parent_students')
             .select('parent_id, student_id, created_at');
 
-        if (linksError) {
-            console.error('❌ Error obteniendo parent_students:', linksError);
-            // No es fatal, solo significa que la tabla no existe o está vacía
-        }
-
-        // 2. Obtener todos los perfiles que son padres (role='parent' O están en parent_students)
-        const parentIds = [...new Set([
-            ...(links || []).map(l => l.parent_id),
-        ])];
-
-        let parents = [];
-        if (parentIds.length > 0) {
-            const { data: parentProfiles } = await supabase
-                .from('profiles')
-                .select('user_id, full_name, email, role, created_at')
-                .in('user_id', parentIds);
-            parents = parentProfiles || [];
-
-            // Agregar también padres con role='parent' que quizás no tengan links aún
-            const { data: roleParents } = await supabase
-                .from('profiles')
-                .select('user_id, full_name, email, role, created_at')
-                .eq('role', 'parent');
-            if (roleParents) {
-                const existingIds = new Set(parents.map(p => p.user_id));
-                roleParents.forEach(rp => {
-                    if (!existingIds.has(rp.user_id)) {
-                        parents.push(rp);
-                        existingIds.add(rp.user_id);
-                    }
-                });
-            }
-        } else {
-            // No hay links aún, buscar por role='parent'
-            const { data: roleParents } = await supabase
-                .from('profiles')
-                .select('user_id, full_name, email, role, created_at')
-                .eq('role', 'parent');
-            parents = roleParents || [];
-        }
-
-        // 3. Armar el mapa de estudiantes por padre
-        const linkMap = {};
-        (links || []).forEach(l => {
-            if (!linkMap[l.parent_id]) linkMap[l.parent_id] = [];
-            linkMap[l.parent_id].push(l.student_id);
+        console.log('1️⃣ parent_students query:', { 
+            linksCount: links?.length, 
+            error: linksError?.message 
         });
 
-        // 4. Obtener perfiles de los estudiantes vinculados
-        const allStudentIds = [...new Set((links || []).map(l => l.student_id))];
+        if (linksError) {
+            console.error('❌ Error obteniendo parent_students:', linksError);
+        }
+
+        // Paso 2: Obtener parent_profiles
+        const { data: parentProfiles, error: parentsError } = await supabase
+            .from('parent_profiles')
+            .select('id, full_name, email, parent_age, relationship_to_student, created_at')
+            .order('created_at', { ascending: false });
+
+        console.log('2️⃣ parent_profiles query:', { 
+            profilesCount: parentProfiles?.length, 
+            error: parentsError?.message 
+        });
+
+        if (parentsError) {
+            console.error('❌ Error obteniendo parent_profiles:', parentsError);
+            return res.status(500).json({
+                error: {
+                    message: 'Error al obtener padres/tutores',
+                    details: parentsError.message,
+                    hint: 'Ejecuta App_Supervisor/supabase/guardian_profile_fields.sql en Supabase.'
+                }
+            });
+        }
+
+        // Paso 3: Construir mapa de estudiantes por padre
+        const linkMap = {};
+        (links || []).forEach((link) => {
+            if (!linkMap[link.parent_id]) linkMap[link.parent_id] = [];
+            linkMap[link.parent_id].push(link.student_id);
+        });
+        console.log('3️⃣ Link map built:', Object.keys(linkMap).length, 'parents have links');
+
+        // Paso 4: Obtener datos de estudiantes vinculados
+        const allStudentIds = [...new Set((links || []).map((link) => link.student_id))];
         const studentMap = {};
         if (allStudentIds.length > 0) {
-            const { data: studentProfiles } = await supabase
+            console.log('4️⃣ Fetching', allStudentIds.length, 'students profiles');
+            const { data: studentProfiles, error: studentsError } = await supabase
                 .from('profiles')
                 .select('user_id, full_name, email, group_name')
                 .in('user_id', allStudentIds);
-            if (studentProfiles) {
-                studentProfiles.forEach(sp => {
-                    studentMap[sp.user_id] = sp;
-                });
-            }
-        }
 
-        // 5. Armar respuesta
-        const result = parents.map(p => ({
-            id: p.user_id,
-            name: p.full_name || 'Sin nombre',
-            email: p.email || '',
-            role: p.role || 'parent',
-            createdAt: p.created_at,
-            children: (linkMap[p.user_id] || []).map(sid => ({
-                id: sid,
-                name: studentMap[sid]?.full_name || 'Desconocido',
-                email: studentMap[sid]?.email || '',
-                group: studentMap[sid]?.group_name || ''
+            if (studentsError) {
+                console.error('❌ Error obteniendo estudiantes vinculados:', studentsError);
+            }
+
+            (studentProfiles || []).forEach((student) => {
+                studentMap[student.user_id] = student;
+            });
+        }
+        // Paso 6: Construir respuesta final
+        const parents = (parentProfiles || []).map((parent) => ({
+            id: parent.id,
+            name: parent.full_name || 'Sin nombre',
+            email: parent.email || '',
+            role: 'parent',
+            age: parent.parent_age || null,
+            relationship: parent.relationship_to_student || '',
+            createdAt: parent.created_at,
+            children: (linkMap[parent.id] || []).map((studentId) => ({
+                id: studentId,
+                name: studentMap[studentId]?.full_name || 'Desconocido',
+                email: studentMap[studentId]?.email || '',
+                group: studentMap[studentId]?.group_name || ''
             }))
         }));
 
-        console.log(`✅ ${result.length} padres encontrados`);
-        res.json({ parents: result });
+        console.log(`✅ ${parents.length} padres/tutores encontrados en parent_profiles`);
+        return res.json({ parents });
     } catch (error) {
-        console.error('💥 Error en /admin/parents:', error);
-        res.status(500).json({ error: { message: 'Error interno', details: error.message } });
+        console.error('💥 Error en /admin/parents parent_profiles:', error);
+        return res.status(500).json({ error: { message: 'Error interno', details: error.message } });
     }
 });
 
@@ -421,13 +493,6 @@ router.post('/parents/:parentId/students', authenticateUser, requireAdmin, async
             console.error('❌ Error vinculando:', error);
             return res.status(500).json({ error: { message: 'Error al vincular' } });
         }
-
-        // Asegurar que el padre tenga role='parent'
-        await supabase
-            .from('profiles')
-            .update({ role: 'parent' })
-            .eq('user_id', parentId)
-            .is('role', null);
 
         console.log(`✅ Padre ${parentId} vinculado al estudiante ${student_id}`);
         res.status(201).json({ link: data });
