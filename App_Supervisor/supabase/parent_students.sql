@@ -1,6 +1,6 @@
 -- Parent_Students Junction Table
--- Links parent accounts (auth.users) to student profiles (profiles)
--- Ejecuta esto en el SQL Editor de Supabase (https://supabase.com/dashboard/project/tcbmlktpzshltvmoirjs/sql/new)
+-- Links EduCoParent parent accounts (auth.users/parent_profiles) to student profiles (profiles)
+-- Ejecuta esto únicamente en el SQL Editor del nuevo proyecto App_Supervisor.
 
 CREATE TABLE IF NOT EXISTS public.parent_students (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -24,8 +24,8 @@ CREATE POLICY "Parents can view their own links"
 -- ═══════════════════════════════════════════════
 -- CÓMO VINCULAR UN PADRE A SUS HIJOS:
 -- ═══════════════════════════════════════════════
--- OPCIÓN A: Desde el panel de Administrador (edu_mi_app)
---   1. Ve al Panel de Administrador en edu_mi_app
+-- OPCIÓN A: Desde un panel de administración propio de App_Supervisor
+--   1. Ve al Panel de Administrador de App_Supervisor
 --   2. Busca la sección "Vinculación Padres-Hijos"
 --   3. Si el padre no aparece, asígnale el rol "parent" desde Gestión de Usuarios
 --   4. Haz clic en "Vincular Estudiante" y busca al hijo por nombre
@@ -33,7 +33,7 @@ CREATE POLICY "Parents can view their own links"
 --
 -- OPCIÓN B: Manualmente (SQL)
 -- 1. Obtén el ID del padre (de auth.users o profiles):
---    SELECT user_id, email, full_name FROM profiles WHERE email = 'padre@ejemplo.com';
+--    SELECT id, email, full_name FROM parent_profiles WHERE email = 'padre@ejemplo.com';
 --
 -- 2. Obtén el ID del estudiante:
 --    SELECT user_id, full_name, email FROM profiles WHERE full_name = 'Damian Agramont';
@@ -50,5 +50,5 @@ CREATE POLICY "Parents can view their own links"
 -- 5. Verifica:
 --    SELECT p.full_name AS padre, s.full_name AS hijo
 --    FROM parent_students ps
---    JOIN profiles p ON p.user_id = ps.parent_id
+--    JOIN parent_profiles p ON p.id = ps.parent_id
 --    JOIN profiles s ON s.user_id = ps.student_id;

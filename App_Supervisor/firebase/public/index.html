@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduCoParent - Autenticación</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.1);
+      border-radius: 16px;
+      padding: 40px;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    .logo {
+      width: 64px;
+      height: 64px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 28px;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #e2e8f0, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .status {
+      padding: 16px;
+      border-radius: 12px;
+      margin: 20px 0;
+      font-size: 0.9rem;
+    }
+    .status.loading {
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      color: #60a5fa;
+    }
+    .status.success {
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+    }
+    .status.error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #f87171;
+    }
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid rgba(59, 130, 246, 0.3);
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .btn {
+      display: inline-block;
+      padding: 12px 24px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      margin-top: 16px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(99, 102, 241, 0.3);
+    }
+    .debug {
+      margin-top: 20px;
+      padding: 12px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 0.75rem;
+      text-align: left;
+      color: #94a3b8;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .debug p {
+      margin: 4px 0;
+      word-break: break-all;
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">👨‍👩‍👧</div>
+    <h1>EduCoParent</h1>
+    <p style="color: #94a3b8; font-size: 0.85rem;">Panel de Control para Padres</p>
+
+    <!-- Loading State -->
+    <div id="loading-state">
+      <div class="spinner"></div>
+      <div class="status loading">
+        <strong>Procesando autenticación...</strong>
+        <p style="margin-top: 8px; font-size: 0.8rem;">Por favor espera un momento</p>
+      </div>
+    </div>
+
+    <!-- Success State -->
+    <div id="success-state" class="hidden">
+      <div class="status success">
+        <strong>✅ Autenticación exitosa</strong>
+        <p style="margin-top: 8px; font-size: 0.8rem;">Abriendo EduCoParent...</p>
+      </div>
+      <p style="font-size: 0.8rem; color: #94a3b8; margin-top: 12px;">
+        Si la app no se abre automáticamente,<br>haz clic en el botón de abajo:
+      </p>
+      <a id="open-app-btn" class="btn" href="#">Abrir EduCoParent</a>
+    </div>
+
+    <!-- Error State -->
+    <div id="error-state" class="hidden">
+      <div class="status error">
+        <strong>❌ Error de autenticación</strong>
+        <p id="error-message" style="margin-top: 8px; font-size: 0.8rem;"></p>
+      </div>
+      <a class="btn" href="https://app-supervisor-backend.onrender.com/index.html">Volver a EduCoParent</a>
+    </div>
+
+    <!-- Debug Panel -->
+    <div id="debug-panel" class="debug hidden">
+      <p><strong>Debug Info:</strong></p>
+      <div id="debug-content"></div>
+    </div>
+  </div>
+
+  <script>
+    const DEBUG_MODE = false;
+    const APP_SUPERVISOR_WEB_URL = 'https://app-supervisor-backend.onrender.com';
+
+    function log(msg) {
+      if (DEBUG_MODE) {
+        console.log('[AUTH-CALLBACK]', msg);
+      }
+    }
+
+    function showState(state) {
+      document.getElementById('loading-state').classList.add('hidden');
+      document.getElementById('success-state').classList.add('hidden');
+      document.getElementById('error-state').classList.add('hidden');
+      document.getElementById(state).classList.remove('hidden');
+    }
+
+    function showDebug(data) {
+      const panel = document.getElementById('debug-panel');
+      const content = document.getElementById('debug-content');
+      if (!DEBUG_MODE) return;
+      panel.classList.remove('hidden');
+      content.textContent = JSON.stringify(data, null, 2);
+    }
+
+    function getParams() {
+      const params = new URLSearchParams(window.location.search);
+      const hash = window.location.hash.substring(1);
+      const hashParams = new URLSearchParams(hash);
+
+      return {
+        access_token: params.get('access_token') || hashParams.get('access_token'),
+        refresh_token: params.get('refresh_token') || hashParams.get('refresh_token'),
+        expires_in: params.get('expires_in') || hashParams.get('expires_in'),
+        token_type: params.get('token_type') || hashParams.get('token_type'),
+        error: params.get('error') || hashParams.get('error'),
+        error_description: params.get('error_description') || hashParams.get('error_description'),
+        code: params.get('code') || hashParams.get('code')
+      };
+    }
+
+    function buildRedirectUrl(params) {
+      // URL de la app web App_Supervisor. Firebase solo actúa como callback OAuth.
+      const baseUrl = new URL('/app.html', APP_SUPERVISOR_WEB_URL).href;
+      const queryParams = new URLSearchParams();
+
+      if (params.access_token) queryParams.set('access_token', params.access_token);
+      if (params.refresh_token) queryParams.set('refresh_token', params.refresh_token);
+      if (params.expires_in) queryParams.set('expires_in', params.expires_in);
+      if (params.token_type) queryParams.set('token_type', params.token_type);
+      if (params.code) queryParams.set('code', params.code);
+
+      return `${baseUrl}?${queryParams.toString()}`;
+    }
+
+    function redirectToApp(url) {
+      log('Redirigiendo a App_Supervisor:', url);
+
+      // Limpiar la URL actual y redirigir
+      setTimeout(() => {
+        window.location.replace(url);
+      }, 1500);
+    }
+
+    async function processAuth() {
+      log('Página cargada');
+      log('URL completa:', window.location.href);
+
+      const params = getParams();
+      log('Parámetros extraídos:', params);
+
+      if (DEBUG_MODE) {
+        showDebug({
+          'URL': window.location.href,
+          'Params': JSON.stringify(params, null, 2)
+        });
+      }
+
+      // Verificar error
+      if (params.error) {
+        log('Error en OAuth:', params.error, params.error_description);
+        document.getElementById('error-message').textContent =
+          params.error_description || params.error || 'Error desconocido';
+        showState('error-state');
+        return;
+      }
+
+      // Si el usuario abrió el callback directamente, llevarlo al login normal.
+      if (!params.access_token && !params.code) {
+        log('No hay parámetros OAuth; redirigiendo al login.');
+        window.location.replace(new URL('/index.html', APP_SUPERVISOR_WEB_URL).href);
+        return;
+      }
+
+      // Éxito - construir URL de redirección
+      log('Credenciales OAuth detectadas, construyendo URL de redirección...');
+      const redirectUrl = buildRedirectUrl(params);
+      log('Redirect URL:', redirectUrl);
+
+      // Actualizar botón
+      const btn = document.getElementById('open-app-btn');
+      btn.href = redirectUrl;
+      btn.textContent = 'Ir a EduCoParent';
+
+      // Mostrar estado de éxito
+      showState('success-state');
+
+      // Redirigir automáticamente
+      setTimeout(() => {
+        redirectToApp(redirectUrl);
+      }, 1000);
+    }
+
+    // Limpiar URL después de procesar
+    function cleanUrl() {
+      const url = new URL(window.location);
+      url.search = '';
+      url.hash = '';
+      window.history.replaceState({}, document.title, url.toString());
+    }
+
+    // Iniciar
+    document.addEventListener('DOMContentLoaded', () => {
+      processAuth().then(() => {
+        cleanUrl();
+      });
+    });
+  </script>
+</body>
+</html>

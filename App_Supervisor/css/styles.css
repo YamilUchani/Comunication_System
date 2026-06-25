@@ -7,18 +7,18 @@
 
 /* ── DESIGN TOKENS ── */
 :root {
-  --bg-primary:    #0b0f19;
-  --bg-secondary:  #111827;
-  --bg-card:       #1f2937;
+  --bg-primary:    #0f172a;
+  --bg-secondary:  #1e293b;
+  --bg-card:       #1e293b;
 
-  --border-color:  rgba(255, 255, 255, 0.08);
+  --border-color:  rgba(255, 255, 255, 0.12);
 
   --accent-primary:       #6366f1;
-  --accent-primary-glow:  rgba(99, 102, 241, 0.20);
+  --accent-primary-glow:  rgba(99, 102, 241, 0.30);
   --accent-secondary:     #10b981;
-  --accent-secondary-glow:rgba(16, 185, 129, 0.20);
+  --accent-secondary-glow:rgba(16, 185, 129, 0.30);
   --accent-colearn:       #8b5cf6;
-  --accent-colearn-glow:  rgba(139, 92, 246, 0.20);
+  --accent-colearn-glow:  rgba(139, 92, 246, 0.30);
 
   --text-primary:   #f9fafb;
   --text-secondary: #9ca3af;
@@ -342,6 +342,104 @@ main {
   gap: 8px;
 }
 
+.pending-link-card {
+  max-width: 760px;
+}
+
+.pending-link-text {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.guardian-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin-top: 22px;
+}
+
+.guardian-form label {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.guardian-form input,
+.guardian-form select {
+  width: 100%;
+  padding: 11px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+}
+
+.guardian-form input:focus,
+.guardian-form select:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+}
+
+.guardian-form select option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.guardian-form button {
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent-primary);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 12px 14px;
+}
+
+.guardian-save-status {
+  align-self: center;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+body.awaiting-link {
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "header"
+    "main";
+}
+
+body.awaiting-link sidebar {
+  display: none;
+}
+
+body.awaiting-link main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body.awaiting-link .tab-content {
+  display: none;
+}
+
+body.awaiting-link #dashboard-tab {
+  display: flex;
+  width: min(760px, 100%);
+}
+
+body.awaiting-link .metrics-row,
+body.awaiting-link #dashboard-tab > .card:not(.pending-link-card) {
+  display: none;
+}
+
+body.awaiting-link .pending-link-card {
+  display: block !important;
+}
+
 /* ════════════════════════════════════════
    GRADES / LIST ROWS  (shared by all tabs)
    ════════════════════════════════════════ */
@@ -485,10 +583,10 @@ main {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  padding: 36px;
-  width: 380px;
+  padding: 40px;
+  width: 400px;
   max-width: 90vw;
-  box-shadow: 0 24px 48px rgba(0,0,0,0.5);
+  box-shadow: 0 24px 48px rgba(0,0,0,0.6);
 }
 
 .login-header {
@@ -572,20 +670,21 @@ main {
 
 .auth-field input {
   width: 100%;
-  padding: 10px 14px;
-  background: rgba(255,255,255,0.04);
+  padding: 12px 16px;
+  background: rgba(255,255,255,0.05);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   font-family: var(--font-body);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   outline: none;
   transition: var(--transition);
 }
 
 .auth-field input:focus {
   border-color: var(--accent-primary);
-  background: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.08);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
 }
 
 .auth-field input::placeholder {
@@ -594,14 +693,14 @@ main {
 
 .auth-submit-btn {
   width: 100%;
-  padding: 12px;
+  padding: 14px;
   background: var(--accent-primary);
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: #fff;
   font-family: var(--font-body);
-  font-size: 0.9rem;
-  font-weight: 700;
+  font-size: 0.95rem;
+  font-weight: 600;
   cursor: pointer;
   transition: var(--transition);
   display: flex;
@@ -609,11 +708,17 @@ main {
   justify-content: center;
   gap: 8px;
   margin-top: 4px;
+  box-shadow: 0 4px 12px var(--accent-primary-glow);
 }
 
 .auth-submit-btn:hover {
   background: #5558e6;
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px var(--accent-primary-glow);
+}
+
+.auth-submit-btn:active {
+  transform: translateY(0);
 }
 
 .auth-submit-btn:disabled {
@@ -671,6 +776,30 @@ main {
 .google-btn:hover {
   background: rgba(255,255,255,0.05);
   border-color: var(--text-muted);
+}
+
+.google-btn.primary {
+  background: #fff;
+  border: none;
+  color: #1f2937;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.google-btn.primary:hover {
+  background: #f3f4f6;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+}
+
+#email-login-toggle {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition: var(--transition);
+}
+#email-login-toggle:hover {
+  color: var(--accent-primary);
+  text-decoration: underline;
 }
 
 /* Logout button */

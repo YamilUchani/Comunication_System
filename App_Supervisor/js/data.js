@@ -47,83 +47,182 @@ const mockDb = {
       can_create_meetings: false
     }
   ],
-
+  
   // 2. Attendance Table
   attendance: [
-    { id: "att-1", user_id: "std-uuid-01", meeting_id: "meet-1", joined_at: "2026-05-22T08:00:00Z", left_at: "2026-05-22T09:00:00Z", duration_minutes: 60, was_on_time: true, meeting_date: "2026-05-22", status: "active" },
-    { id: "att-2", user_id: "std-uuid-01", meeting_id: "meet-2", joined_at: "2026-05-20T10:15:00Z", left_at: "2026-05-20T11:15:00Z", duration_minutes: 60, was_on_time: false, meeting_date: "2026-05-20", status: "active" },
-    { id: "att-3", user_id: "std-uuid-01", meeting_id: "meet-3", joined_at: "2026-05-18T08:02:00Z", left_at: "2026-05-18T09:00:00Z", duration_minutes: 58, was_on_time: true, meeting_date: "2026-05-18", status: "active" },
-    
-    { id: "att-4", user_id: "std-uuid-02", meeting_id: "meet-1", joined_at: "2026-05-22T08:01:00Z", left_at: "2026-05-22T09:00:00Z", duration_minutes: 59, was_on_time: true, meeting_date: "2026-05-22", status: "active" },
-    { id: "att-5", user_id: "std-uuid-02", meeting_id: "meet-2", joined_at: "2026-05-20T10:00:00Z", left_at: "2026-05-20T11:00:00Z", duration_minutes: 60, was_on_time: true, meeting_date: "2026-05-20", status: "active" },
-    
-    { id: "att-6", user_id: "std-uuid-03", meeting_id: "meet-1", joined_at: "2026-05-22T08:00:00Z", left_at: "2026-05-22T09:00:00Z", duration_minutes: 60, was_on_time: true, meeting_date: "2026-05-22", status: "active" }
+    {
+      id: "att-001",
+      user_id: "std-uuid-01",
+      meeting_id: "meet-001",
+      meeting_date: "2025-06-15",
+      joined_at: "2025-06-15T10:00:00Z",
+      left_at: "2025-06-15T11:30:00Z",
+      was_on_time: true,
+      duration_minutes: 90
+    },
+    {
+      id: "att-002",
+      user_id: "std-uuid-01",
+      meeting_id: "meet-002",
+      meeting_date: "2025-06-16",
+      joined_at: "2025-06-16T10:05:00Z",
+      left_at: "2025-06-16T11:30:00Z",
+      was_on_time: false,
+      duration_minutes: 85
+    }
   ],
-
-  // 3. Challenges Table
-  challenges: [
-    { id: "ch-1", title: "Operaciones Aritméticas Básicas", description: "Suma, resta, multiplicación y división de números enteros.", order_index: 1 },
-    { id: "ch-2", title: "Introducción a las Fracciones", description: "Identificar y representar partes de un entero.", order_index: 2 },
-    { id: "ch-3", title: "Ecuaciones Lineales Simples", description: "Despejar la incógnita X en ecuaciones sencillas.", order_index: 3 },
-    { id: "ch-4", title: "Geometría Básica: Áreas", description: "Fórmulas para calcular el área de triángulos y rectángulos.", order_index: 4 },
-    { id: "ch-5", title: "Fracciones Equivalentes", description: "Simplificación y comparación de fracciones.", order_index: 5 }
-  ],
-
-  // 4. Student Level Progress Table
+  
+  // 3. Student Level Progress
   student_level_progress: [
-    { id: "slp-1", student_id: "std-uuid-01", challenge_id: "ch-1", status: "completed", unlocked_at: "2026-05-10T12:00:00Z", completed_at: "2026-05-11T14:30:00Z" },
-    { id: "slp-2", student_id: "std-uuid-01", challenge_id: "ch-2", status: "completed", unlocked_at: "2026-05-12T09:00:00Z", completed_at: "2026-05-15T11:00:00Z" },
-    { id: "slp-3", student_id: "std-uuid-01", challenge_id: "ch-3", status: "completed", unlocked_at: "2026-05-16T10:00:00Z", completed_at: "2026-05-18T16:00:00Z" },
-    { id: "slp-4", student_id: "std-uuid-01", challenge_id: "ch-4", status: "in_progress", unlocked_at: "2026-05-19T08:00:00Z", completed_at: null },
-    
-    { id: "slp-5", student_id: "std-uuid-02", challenge_id: "ch-1", status: "completed", unlocked_at: "2026-05-10T12:00:00Z", completed_at: "2026-05-11T13:00:00Z" },
-    { id: "slp-6", student_id: "std-uuid-02", challenge_id: "ch-2", status: "completed", unlocked_at: "2026-05-12T09:00:00Z", completed_at: "2026-05-14T10:15:00Z" }
+    {
+      id: "slp-001",
+      student_id: "std-uuid-01",
+      challenge_id: "ch-001",
+      status: "completed",
+      unlocked_at: "2025-06-01T10:00:00Z",
+      completed_at: "2025-06-05T15:30:00Z"
+    },
+    {
+      id: "slp-002",
+      student_id: "std-uuid-01",
+      challenge_id: "ch-002",
+      status: "in_progress",
+      unlocked_at: "2025-06-06T10:00:00Z",
+      completed_at: null
+    }
   ],
-
-  // 5. Achievements Table
-  achievements: [
-    { id: "ach-1", name: "Primer Paso", description: "Completa la primera lección con puntaje perfecto.", icon: "🏆", points: 10 },
-    { id: "ach-2", name: "Asistencia Perfecta", description: "Asiste a 3 clases consecutivas a tiempo.", icon: "⭐", points: 20 },
-    { id: "ach-3", name: "Maestro Fraccionario", description: "Completa el módulo de fracciones de nivel intermedio.", icon: "🎯", points: 30 }
+  
+  // 4. Challenges
+  challenges: [
+    {
+      id: "ch-001",
+      title: "Introducción a la Programación",
+      description: "Aprende los conceptos básicos de programación con Scratch",
+      order_index: 1
+    },
+    {
+      id: "ch-002",
+      title: "Variables y Tipos de Datos",
+      description: "Comprende qué son las variables y cómo usarlas",
+      order_index: 2
+    }
   ],
-
-  // 6. Student Achievements Table
+  
+  // 5. Student Achievements
   student_achievements: [
-    { student_id: "std-uuid-01", achievement_id: "ach-1", unlocked_at: "2026-05-11T14:30:00Z" },
-    { student_id: "std-uuid-01", achievement_id: "ach-2", unlocked_at: "2026-05-22T09:00:00Z" },
-    
-    { student_id: "std-uuid-02", achievement_id: "ach-1", unlocked_at: "2026-05-11T13:00:00Z" }
+    {
+      id: "sa-001",
+      student_id: "std-uuid-01",
+      achievement_id: "ach-001",
+      unlocked_at: "2025-06-10T14:00:00Z"
+    },
+    {
+      id: "sa-002",
+      student_id: "std-uuid-01",
+      achievement_id: "ach-002",
+      unlocked_at: "2025-06-12T16:30:00Z"
+    }
   ],
-
-  // 7. Class Schedules Table
+  
+  // 6. Achievements
+  achievements: [
+    {
+      id: "ach-001",
+      name: "Primer Paso",
+      description: "Completa tu primer reto de programación",
+      icon: "🥇",
+      points: 100
+    },
+    {
+      id: "ach-002",
+      name: "Estudiante Dedicado",
+      description: "Completa 5 retos en una semana",
+      icon: "⭐",
+      points: 250
+    }
+  ],
+  
+  // 7. Class Schedules
   class_schedules: [
-    { id: "sched-1", teacher_id: "teach-01", group_name: "8A", subject: "Matemáticas Básicas", day_of_week: 1, start_time: "08:00:00", end_time: "09:00:00", is_active: true },
-    { id: "sched-2", teacher_id: "teach-01", group_name: "8A", subject: "Ciencias de la Tierra", day_of_week: 3, start_time: "10:15:00", end_time: "11:15:00", is_active: true },
-    { id: "sched-3", teacher_id: "teach-01", group_name: "8A", subject: "Historia Universal", day_of_week: 5, start_time: "08:00:00", end_time: "09:00:00", is_active: true },
-    
-    { id: "sched-4", teacher_id: "teach-02", group_name: "8B", subject: "Matemáticas Avanzadas", day_of_week: 1, start_time: "08:00:00", end_time: "09:00:00", is_active: true },
-    { id: "sched-5", teacher_id: "teach-02", group_name: "8B", subject: "Física Cuántica Básica", day_of_week: 3, start_time: "10:00:00", end_time: "11:00:00", is_active: true }
+    {
+      id: "cs-001",
+      group_name: "8A",
+      subject: "Programación Básica",
+      teacher_id: "teacher-001",
+      day_of_week: 1,
+      start_time: "10:00:00",
+      end_time: "11:30:00",
+      is_active: true
+    },
+    {
+      id: "cs-002",
+      group_name: "8A",
+      subject: "Matemáticas",
+      teacher_id: "teacher-002",
+      day_of_week: 3,
+      start_time: "08:00:00",
+      end_time: "09:30:00",
+      is_active: true
+    }
   ],
-
-  // 8. Materials Table
-  materials: [
-    { id: "mat-1", title: "Ficha de Fracciones y Decimales", description: "PDF de reforzamiento interactivo con problemas matemáticos.", pdf_url: "#", image_url: null },
-    { id: "mat-2", title: "Guía de Ecuaciones de Primer Grado", description: "Infografía paso a paso para resolver ecuaciones de la forma ax + b = c.", pdf_url: "#", image_url: null }
-  ],
-
-  // 9. Student Material Progress Table
+  
+  // 8. Student Material Progress
   student_material_progress: [
-    { id: "smp-1", student_id: "std-uuid-01", material_id: "mat-1", status: "completed", updated_at: "2026-05-18T10:00:00Z" },
-    { id: "smp-2", student_id: "std-uuid-01", material_id: "mat-2", status: "pending", updated_at: "2026-05-20T11:00:00Z" },
-    
-    { id: "smp-3", student_id: "std-uuid-02", material_id: "mat-1", status: "completed", updated_at: "2026-05-19T09:30:00Z" }
+    {
+      id: "smp-001",
+      student_id: "std-uuid-01",
+      material_id: "mat-001",
+      status: "completed",
+      updated_at: "2025-06-08T12:00:00Z"
+    },
+    {
+      id: "smp-002",
+      student_id: "std-uuid-01",
+      material_id: "mat-002",
+      status: "pending",
+      updated_at: "2025-06-09T10:00:00Z"
+    }
   ],
-
-  // 10. Meetings Table
+  
+  // 9. Materials
+  materials: [
+    {
+      id: "mat-001",
+      title: "Ficha de Refuerzo - Variables",
+      description: "Ejercicios prácticos sobre variables y tipos de datos",
+      pdf_url: "https://example.com/ficha-variables.pdf",
+      image_url: null
+    },
+    {
+      id: "mat-002",
+      title: "Guía de Estudio - Bucles",
+      description: "Material complementario sobre bucles y repeticiones",
+      pdf_url: "https://example.com/guia-bucles.pdf",
+      image_url: null
+    }
+  ],
+  
+  // 10. Meetings
   meetings: [
-    { id: "meet-uuid-1", channel_name: "Room-A8", title: "Clase en Vivo: Geometría de Áreas", description: "Sala virtual de Matemáticas 8º Grado.", creator_id: "teach-01", is_active: true, expires_at: "2026-05-28T10:00:00Z", group_name: "8A", meeting_type: "master" }
+    {
+      id: "meet-001",
+      title: "Clase de Introducción",
+      description: "Sala virtual para la primera clase de programación",
+      channel_name: "edu-8a-programacion-001",
+      meeting_type: "master",
+      is_active: true,
+      created_at: "2025-06-01T08:00:00Z"
+    },
+    {
+      id: "meet-002",
+      title: "Repaso de Variables",
+      description: "Sesión de repaso y consultas sobre variables",
+      channel_name: "edu-8a-variables-001",
+      meeting_type: "review",
+      is_active: true,
+      created_at: "2025-06-05T14:00:00Z"
+    }
   ]
 };
 
-// Export to global window object
 window.mockDb = mockDb;

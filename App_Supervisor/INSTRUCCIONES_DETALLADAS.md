@@ -19,7 +19,7 @@ El sistema está diseñado para operar bajo un enfoque híbrido de prioridad as�
 Supabase se encarga de almacenar de forma relacional toda la información escolar, calendarios y mensajería.
 
 ### Instrucciones:
-1. Inicia sesión en [Supabase Console](https://supabase.com) y crea un nuevo proyecto llamado `App_Supervisor`.
+1. Inicia sesión en Supabase y abre el proyecto compartido con `edu_mi_app`.
 2. Ve a la pestaña **SQL Editor** en el panel izquierdo de Supabase.
 3. Crea un nuevo Query e introduce las instrucciones del archivo [schema.sql](file:///g:/Github/Software de administracion/App_Supervisor/supabase/schema.sql).
 4. Haz clic en **Run** para crear la estructura de tablas y las políticas de Row Level Security (RLS).
@@ -27,11 +27,16 @@ Supabase se encarga de almacenar de forma relacional toda la información escola
 6. Copia los valores de:
    - **Project API URL** (URL del proyecto)
    - **anon public** (Clave de API anónima pública)
-7. Pega estas credenciales en el archivo [supabase-config.js](file:///g:/Github/Software de administracion/App_Supervisor/js/supabase-config.js) en las variables:
+7. Configura la conexión compartida y la URL propia de Supervisor en `js/app-supervisor-config.js`:
    ```javascript
-   const SUPABASE_URL = "TU_SUPABASE_URL_AQUÍ";
-   const SUPABASE_ANON_KEY = "TU_SUPABASE_ANON_KEY_AQUÍ";
+   window.APP_SUPERVISOR_CONFIG = {
+     supabaseUrl: "https://TU-PROJECT-REF.supabase.co",
+     supabaseAnonKey: "TU_CLAVE_PUBLICA_ANON",
+     appUrl: "https://yamiluchani.github.io/Comunication_System/"
+   };
    ```
+8. En **Authentication → URL Configuration → Redirect URLs**, agrega:
+   `https://yamiluchani.github.io/Comunication_System/`
 
 ---
 

@@ -1,14 +1,38 @@
-// Express Backend Server for Render - De Supervisor a Co-Aprendiz
+// Express Backend Server for Render + Local Dev - De Supervisor a Co-Aprendiz
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
 
 const app = express();
-app.use(cors());
+
+// ── CORS & JSON parsing ──
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map(origin => origin.trim()).filter(Boolean)
+  : [
+      "http://localhost:8000",
+      "http://127.0.0.1:8000",
+      "https://educoparent-callback.web.app",
+      "https://app-supervisor-backend.onrender.com"
+    ];
+
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error("Origin not allowed by CORS"), false);
+  }
+}));
 app.use(express.json());
 
-const PORT = process.env.PORT || 10000;
+// ── Serve App_Supervisor static files ──
+// Path to App_Supervisor root (parent of the /server directory)
+const appRoot = path.join(__dirname, "..");
+app.use(express.static(appRoot));
+
+const PORT = process.env.PORT || 8000;
 
 // Initialize Supabase Client if envs are available
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -28,7 +52,9 @@ app.get("/api/health", (req, res) => {
     status: "online",
     timestamp: new Date(),
     supabaseConnected: !!supabase,
-    environment: process.env.NODE_ENV || "development"
+    environment: process.env.NODE_ENV || "development",
+    port: PORT,
+    serving: "App_Supervisor"
   });
 });
 
@@ -98,6 +124,7 @@ app.post("/api/rules-engine/evaluate", async (req, res) => {
 // 3. Financial PCI DSS Compliant Payment Tokenization Simulation Endpoint
 app.post("/api/payment/charge", (req, res) => {
   const { cardToken, amount, courseTitle, familyProfileId } = req.body;
+  const numericAmount = Number(amount);
   
   console.log(`[PCI DSS PAYMENT GATEWAY] Received transaction request for $${amount}...`);
   
@@ -107,24 +134,56 @@ app.post("/api/payment/charge", (req, res) => {
       error: "PCI DSS Violation: direct credit card data processing is forbidden. Please provide a gateway token."
     });
   }
+
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    return res.status(400).json({
+      error: "Invalid amount. Provide a positive numeric amount."
+    });
+  }
   
   // Safe payment processing (Masked log)
-  console.log(`[STRIPE CHARGE API] Token authorized. Amount charged: $${amount}. Course: "${courseTitle}".`);
+  console.log(`[STRIPE CHARGE API] Token authorized. Amount charged: $${numericAmount}. Course: "${courseTitle}".`);
   
   const transactionId = "tx_live_" + Math.random().toString(36).substring(2, 15);
   
   res.json({
     success: true,
     transactionId: transactionId,
-    amount: amount,
+    amount: numericAmount,
     status: "succeeded",
-    tokenUsed: cardToken,
+    tokenUsed: `${cardToken.slice(0, 11)}...${cardToken.slice(-4)}`,
     date: new Date().toISOString(),
     receiptUrl: `https://stripe.com/receipts/simulation/${transactionId}`
   });
 });
 
+// ── SPA fallback: serve app.html for any non-API, non-static routes ──
+app.get("*", (req, res) => {
+  // If the request looks like an API path, return 404
+  if (req.path.startsWith("/api/")) {
+    return res.status(404).json({ error: "API endpoint not found" });
+  }
+  // Otherwise serve app.html (SPA entry point)
+  res.sendFile(path.join(appRoot, "app.html"));
+});
+
 // Start listening
 app.listen(PORT, () => {
-  console.log(`[SYSTEM] Express server running on port ${PORT}`);
+  const supabaseStatus = supabase ? "CONECTADO" : "MOCK (sin credenciales)";
+  console.log(`
+╔══════════════════════════════════════════════════════╗
+║                                                      ║
+║   EduCoParent - App_Supervisor                       ║
+║   ─────────────────────────────                      ║
+║   Servidor Express corriendo en:                     ║
+║   http://localhost:${PORT}                           ║
+║                                                      ║
+║   Frontend:  http://localhost:${PORT}/app.html       ║
+║   Landing:   http://localhost:${PORT}/index.html     ║
+║   API Health: http://localhost:${PORT}/api/health    ║
+║                                                      ║
+║   Supabase: ${supabaseStatus.padEnd(38, " ")}║
+║                                                      ║
+╚══════════════════════════════════════════════════════╝
+  `);
 });

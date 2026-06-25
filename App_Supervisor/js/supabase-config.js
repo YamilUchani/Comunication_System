@@ -1,51 +1,81 @@
 // Supabase Cloud Connection & Failover API SDK
-// Aligned 100% with the production database schema of edu_mi_app
+// Base de datos compartida; retorno de autenticación exclusivo de App_Supervisor.
 
-const SUPABASE_URL = "https://tcbmlktpzshltvmoirjs.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjYm1sa3RwenNobHR2bW9pcmpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUyNzI3MjcsImV4cCI6MjA3MDg0ODcyN30.Db7cmNGxdbfvvxD19g4JuYs8bkLF8m5ZZ8D0kpocztA";
+const supervisorConfig = window.APP_SUPERVISOR_CONFIG || {};
+const SUPABASE_URL = (supervisorConfig.supabaseUrl || "").trim();
+const SUPABASE_ANON_KEY = (supervisorConfig.supabaseAnonKey || "").trim();
+const APP_SUPERVISOR_URL = (supervisorConfig.appUrl || "").trim();
+
+function getAuthRedirectUrl() {
+  const isLocal =
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1";
+
+  if (isLocal || !APP_SUPERVISOR_URL) {
+    return `${window.location.origin}${window.location.pathname}`;
+  }
+
+  return APP_SUPERVISOR_URL;
+}
 
 let supabaseClient = null;
 let isSupabaseActive = false;
 
 try {
   if (
-    SUPABASE_URL && 
-    SUPABASE_URL !== "TU_SUPABASE_URL_AQUÍ" && 
-    SUPABASE_ANON_KEY && 
-    SUPABASE_ANON_KEY !== "TU_SUPABASE_ANON_KEY_AQUÍ"
+    /^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(SUPABASE_URL) &&
+    SUPABASE_ANON_KEY
   ) {
-    if (typeof supabase !== 'undefined') {
+    if (typeof supabase !== 'undefined' && supabase && typeof supabase.createClient === 'function') {
       supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
       isSupabaseActive = true;
       console.log("[SUPABASE] Connected successfully to Cloud database.");
+    } else {
+      console.warn("[SUPABASE] Supabase SDK not loaded (CDN may be blocked or offline). Running in LOCAL mode.");
     }
+  } else {
+    console.warn("[APP_SUPERVISOR] Supabase credentials are not configured. Running in LOCAL mode.");
   }
 } catch (error) {
   console.error("[SUPABASE ERROR] Failed to initialize connection client:", error);
+  // Keep supabaseClient = null and isSupabaseActive = false
 }
 
 // ===== AUTH =====
 const supabaseAuth = {
-  signUp: async (email, password, fullName) => {
+  signUp: async (email, password, fullName, guardianInfo = {}) => {
     if (!isSupabaseActive || !supabaseClient) throw new Error("Supabase no disponible");
     const { data, error } = await supabaseClient.auth.signUp({
       email, password,
-      options: { data: { full_name: fullName } }
+      options: {
+        data: {
+          full_name: fullName,
+          parent_age: guardianInfo.parent_age,
+          relationship_to_student: guardianInfo.relationship_to_student
+        }
+      }
     });
     if (error) throw error;
 
     // Crear/actualizar perfil con role='parent'
     if (data?.user) {
       try {
-        await supabaseClient.from("profiles").upsert({
+        await supabaseClient.from("parent_profiles").upsert({
           id: data.user.id,
-          user_id: data.user.id,
           email: email,
           full_name: fullName,
-          role: "parent"
+          parent_age: guardianInfo.parent_age,
+          relationship_to_student: guardianInfo.relationship_to_student,
+          updated_at: new Date().toISOString()
         }, { onConflict: "id" });
       } catch (profileErr) {
         console.warn("[SUPABASE] Could not create parent profile:", profileErr.message);
+        await supabaseClient.from("parent_profiles").upsert({
+          id: data.user.id,
+          email: email,
+          full_name: fullName,
+          updated_at: new Date().toISOString()
+        }, { onConflict: "id" });
       }
     }
 
@@ -54,24 +84,15 @@ const supabaseAuth = {
 
   signInWithGoogle: async () => {
     if (!isSupabaseActive || !supabaseClient) throw new Error("Supabase no disponible");
+
     const { data, error } = await supabaseClient.auth.signInWithOAuth({
-      provider: 'google',
+      provider: "google",
       options: {
-        redirectTo: window.location.href,
-        skipBrowserRedirect: true,
-        queryParams: { access_type: 'offline', prompt: 'consent' }
+        redirectTo: getAuthRedirectUrl(),
+        queryParams: { access_type: "offline", prompt: "consent" }
       }
     });
     if (error) throw error;
-    if (data?.url) {
-      const w = 600, h = 700;
-      const left = screen.width / 2 - w / 2, top = screen.height / 2 - h / 2;
-      const popup = window.open(data.url, 'google-oauth',
-        `width=${w},height=${h},left=${left},top=${top}`);
-      if (!popup) {
-        throw new Error("Popup bloqueado. Permití ventanas emergentes para este sitio e intentá de nuevo.");
-      }
-    }
     return data;
   },
 
@@ -101,9 +122,28 @@ const supabaseAuth = {
     });
   },
 
-  getCurrentUser: () => {
+  getCurrentUser: async () => {
     if (!isSupabaseActive || !supabaseClient) return null;
-    return supabaseClient.auth.currentUser;
+    const { data, error } = await supabaseClient.auth.getUser();
+    if (error) throw error;
+    return data.user;
+  },
+
+  setSession: async (accessToken, refreshToken) => {
+    if (!isSupabaseActive || !supabaseClient) throw new Error("Supabase no disponible");
+    const { data, error } = await supabaseClient.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken
+    });
+    if (error) throw error;
+    return data;
+  },
+
+  exchangeCodeForSession: async (code) => {
+    if (!isSupabaseActive || !supabaseClient) throw new Error("Supabase no disponible");
+    const { data, error } = await supabaseClient.auth.exchangeCodeForSession(code);
+    if (error) throw error;
+    return data;
   }
 };
 
@@ -115,7 +155,12 @@ const supabaseApi = {
   // 1. Fetch the parent's linked students from parent_students
   getMyStudents: async () => {
     if (isSupabaseActive && supabaseClient) {
-      const user = supabaseClient.auth.currentUser;
+      const { data: userData, error: userError } = await supabaseClient.auth.getUser();
+      if (userError) {
+        console.warn("[SUPABASE] Could not resolve authenticated user:", userError.message);
+        return [];
+      }
+      const user = userData.user;
       if (!user) return [];
       try {
         console.log("[SUPABASE] Fetching parent_students for:", user.id);
@@ -147,25 +192,13 @@ const supabaseApi = {
   // 2. Fetch all students (fallback / admin use)
   getStudents: async () => {
     if (isSupabaseActive && supabaseClient) {
-      try {
-        console.log("[SUPABASE] Fetching student profiles...");
-        const { data, error } = await supabaseClient
-          .from("profiles")
-          .select("id, user_id, full_name, group_name, role, avatar_url, email, active_level, total_levels, deleted_at")
-          .eq("role", "student")
-          .is("deleted_at", null)
-          .order("full_name", { ascending: true });
-        if (error) throw error;
-        return data || [];
-      } catch (err) {
-        console.warn("[SUPABASE] getStudents failed, using local fallback.", err.message);
-        return window.mockDb.profiles.filter(p => p.role === "student");
-      }
+      console.warn("[SUPABASE] getStudents is disabled in cloud mode for parent privacy.");
+      return [];
     }
     return window.mockDb.profiles.filter(p => p.role === "student");
   },
 
-  // 2. Fetch Attendance records
+  // 3. Fetch Attendance records
   getAttendance: async (studentId) => {
     if (isSupabaseActive && supabaseClient) {
       try {
@@ -328,19 +361,73 @@ const supabaseApi = {
     if (isSupabaseActive && supabaseClient) {
       try {
         console.log(`[SUPABASE] Fetching live meetings for student: ${studentId}`);
+        const { data: studentProfile } = await supabaseClient
+          .from("profiles")
+          .select("group_name")
+          .eq("user_id", studentId)
+          .maybeSingle();
+
+        const groupName = studentProfile?.group_name || null;
         const { data, error } = await supabaseClient
           .from("meetings")
           .select("*")
           .eq("is_active", true)
           .order("created_at", { ascending: false });
         if (error) throw error;
-        return data || [];
+        return (data || []).filter(meeting => {
+          const allowedGroups = Array.isArray(meeting.allowed_groups) ? meeting.allowed_groups : [];
+          const allowedUsers = Array.isArray(meeting.allowed_users) ? meeting.allowed_users : [];
+          const personallyInvited = allowedUsers.includes(studentId);
+          const groupAllowed = groupName && allowedGroups.includes(groupName);
+          const unrestricted = allowedGroups.length === 0 && allowedUsers.length === 0;
+          return personallyInvited || groupAllowed || unrestricted;
+        });
       } catch (err) {
         console.warn("[SUPABASE] getMeetings failed, using local fallback.", err.message);
         return window.mockDb.meetings;
       }
     }
     return window.mockDb.meetings;
+  },
+
+  // 8. Upsert Parent Profile — BUG FIX: exposed so app.js can call it without accessing supabaseClient
+  upsertParentProfile: async (profileData) => {
+    if (!isSupabaseActive || !supabaseClient) {
+      return { ok: false, error: "Supabase client is not active" };
+    }
+    try {
+      const cleanProfile = Object.fromEntries(
+        Object.entries(profileData || {}).filter(([, value]) => value !== undefined)
+      );
+      const { error } = await supabaseClient
+        .from("parent_profiles")
+        .upsert(cleanProfile, { onConflict: "id" });
+      if (error) throw error;
+      console.log("[SUPABASE] Parent profile saved.");
+      return { ok: true };
+    } catch (err) {
+      console.warn("[SUPABASE] upsertParentProfile failed:", err.message);
+      if (profileData?.id) {
+        try {
+          const fallbackProfile = {
+            id: profileData.id,
+            email: profileData.email,
+            full_name: profileData.full_name,
+            updated_at: new Date().toISOString()
+          };
+          const { error } = await supabaseClient
+            .from("parent_profiles")
+            .upsert(fallbackProfile, { onConflict: "id" });
+          if (!error) {
+            console.warn("[SUPABASE] Saved parent profile without guardian optional fields.");
+            return { ok: false, partial: true, error: err.message };
+          }
+        } catch (fallbackErr) {
+          console.warn("[SUPABASE] Parent profile fallback failed:", fallbackErr.message);
+        }
+      }
+      return { ok: false, error: err.message };
+    }
   }
 };
 

@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════
 -- COMPLETE SUPABASE SETUP — App_Supervisor (Padres)
--- Ejecuta TODO esto en el SQL Editor de Supabase:
--- https://supabase.com/dashboard/project/tcbmlktpzshltvmoirjs/sql/new
+-- Ejecuta esto en el proyecto Supabase compartido con edu_mi_app.
+-- App_Supervisor usa las mismas tablas, pero su propia URL de retorno.
 -- ═══════════════════════════════════════════════════════════════════
 
 -- ==========================================
@@ -76,7 +76,9 @@ CREATE POLICY "Anyone can read profiles"
 -- A) AGREGAR URL DE GITHUB PAGES A REDIRECT URLS
 --    1. Ve a Authentication → Settings
 --    2. En "Redirect URLs" agregá:
---       https://yamiluchani.github.io/Comunication_System/**
+--       https://yamiluchani.github.io/Comunication_System/
+--       http://localhost:*/**
+--       http://127.0.0.1:*/**
 --    3. Guardá
 
 -- B) HABILITAR GOOGLE OAUTH
@@ -87,7 +89,7 @@ CREATE POLICY "Anyone can read profiles"
 --       b. Creá un proyecto o usá uno existente
 --       c. Creá una "OAuth 2.0 Client ID" (tipo "Web application")
 --       d. Agregá como URI de redirección autorizada:
---          https://tcbmlktpzshltvmoirjs.supabase.co/auth/v1/callback
+--          https://TU-NUEVO-PROJECT-REF.supabase.co/auth/v1/callback
 --       e. Copiá Client ID y Client Secret a Supabase
 --    4. Guardá
 
@@ -104,7 +106,7 @@ CREATE POLICY "Anyone can read profiles"
 -- 2. Padre puede: a) Registrarse con email+password
 --                 b) Registrarse/Entrar con Google
 -- 3. Al registrarse se crea profile con role='parent'
--- 4. Admin (en edu_mi_app) va a "Vinculación Padres-Hijos"
---    y vincula al padre con sus hijos
+-- 4. Un administrador de App_Supervisor crea o importa los estudiantes
+--    y los vincula con sus padres dentro del nuevo proyecto.
 -- 5. Padre vuelve a App_Supervisor, inicia sesión
 --    y ve SOLO los estudiantes vinculados
