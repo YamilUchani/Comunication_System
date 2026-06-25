@@ -182,11 +182,11 @@ const supabaseApi = {
           return [];
         }
         
-        // Get profiles - join with auth.users to get role info
+        // Get student data from profiles table by user_id
         const { data: students, error: sError } = await supabaseClient
           .from("profiles")
-          .select("id, email, full_name, created_at")
-          .in("id", studentIds)
+          .select("id, user_id, email, full_name, created_at")
+          .in("user_id", studentIds)
           .order("full_name", { ascending: true });
         
         if (sError) {
@@ -194,39 +194,18 @@ const supabaseApi = {
           return [];
         }
         
-        if (!students || students.length === 0) {
-          console.log("[SUPABASE] No profile records found for linked student IDs.");
-          return [];
-        }
-        
-        // Try to get role from auth.users metadata
-        const enrichedStudents = await Promise.all(
-          students.map(async (s) => {
-            try {
-              const { data: authData } = await supabaseClient.auth.admin.getUserById(s.id);
-              const role = authData?.user?.user_metadata?.role || "student";
-              return {
-                ...s,
-                user_id: s.id,
-                role: role,
-                group_name: authData?.user?.user_metadata?.group_name || "Sin grupo",
-                avatar_url: authData?.user?.user_metadata?.avatar_url || null,
-                active_level: 1,
-                total_levels: 20
-              };
-            } catch {
-              return {
-                ...s,
-                user_id: s.id,
-                role: "student",
-                group_name: "Sin grupo",
-                avatar_url: null,
-                active_level: 1,
-                total_levels: 20
-              };
-            }
-          })
-        );
+        const enrichedStudents = (students || []).map(s => ({
+          id: s.user_id || s.id,
+          user_id: s.user_id || s.id,
+          email: s.email || "",
+          full_name: s.full_name || s.email?.split('@')[0] || "Estudiante",
+          role: "student",
+          group_name: "Sin grupo",
+          avatar_url: null,
+          active_level: 1,
+          total_levels: 20,
+          created_at: s.created_at
+        }));
         
         console.log("[SUPABASE] Found students:", enrichedStudents.length);
         return enrichedStudents;
