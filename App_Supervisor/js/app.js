@@ -71,6 +71,8 @@ document.addEventListener("DOMContentLoaded", () => {
   async function init() {
     logTelemetry("SYSTEM", "EduCoParent dashboard initializing...");
     updateConnectionBadge();
+    console.log("[APP] Supabase active:", window.supabaseApi?.isActive());
+    console.log("[APP] Current URL:", window.location.href);
 
     // Always bind nav/selector events first
     bindEvents();
@@ -78,6 +80,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Listen for auth state changes (logout from another tab, token expiry)
     try {
       window.supabaseAuth.onAuthChange((event, session) => {
+        console.log("[APP] Auth state change:", event, session?.user?.email || "no user");
         if (event === "SIGNED_OUT") {
           logTelemetry("AUTH", "Session ended. Redirecting to login...");
           goToLogin();
@@ -93,13 +96,33 @@ document.addEventListener("DOMContentLoaded", () => {
     // Check for OAuth callback tokens, then for existing session
     try {
       await consumeAuthTokensFromUrl();
+    } catch (e) {
+      console.warn("[APP] consumeAuthTokensFromUrl failed:", e.message);
+    }
+
+    try {
       const session = await window.supabaseAuth.getSession();
+      console.log("[APP] getSession result:", session ? "session found for " + session.user.email : "no session");
       if (session?.user) {
+        logTelemetry("AUTH", "Session found, loading dashboard...");
         await onAuthSuccess(session.user);
         return;
       }
     } catch (e) {
       console.warn("[APP] Session check failed:", e.message);
+    }
+
+    // Try getCurrentUser as fallback
+    try {
+      const user = await window.supabaseAuth.getCurrentUser();
+      console.log("[APP] getCurrentUser result:", user ? "user found: " + user.email : "no user");
+      if (user) {
+        logTelemetry("AUTH", "User obtained via getCurrentUser, loading dashboard...");
+        await onAuthSuccess(user);
+        return;
+      }
+    } catch (e) {
+      console.warn("[APP] getCurrentUser failed:", e.message);
     }
 
     // No Supabase OR no session — in local mode load mock data directly
@@ -116,6 +139,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Supabase active but no session — redirect to login
     logTelemetry("AUTH", "No active session. Redirecting to login...");
+    console.log("[APP] Redirecting to login because no session found");
     goToLogin();
   }
 
@@ -393,25 +417,25 @@ document.addEventListener("DOMContentLoaded", () => {
       logTelemetry("SUPABASE_ERROR", `getMyStudents failed: ${err.message}`);
     }
 
-    // In Supabase, parents must only see explicitly linked students.
-    // The all-students fallback is limited to local/mock mode.
-    if ((!rawStudents || rawStudents.length === 0) && (!window.supabaseApi || !window.supabaseApi.isActive())) {
-      logTelemetry("STUDENTS", "Local mode: no linked students found, loading mock students...");
-      try {
-        rawStudents = await window.supabaseApi.getStudents();
-      } catch (err) {
-        logTelemetry("SUPABASE_ERROR", `Failed to query profiles: ${err.message}`);
-      }
+    const isRealSupabase = window.supabaseApi && window.supabaseApi.isActive();
+
+    // Fallback to mock data ONLY when Supabase is NOT active (true local mode)
+    // When Supabase is active but returns empty, it means no real students are linked
+    if ((!rawStudents || rawStudents.length === 0) && !isRealSupabase) {
+      logTelemetry("STUDENTS", "Local mode: loading mock students...");
+      rawStudents = window.mockDb.profiles.filter(p => p.role === "student").map(s => ({
+        ...s,
+        _source: "mock"
+      }));
+    } else if ((!rawStudents || rawStudents.length === 0) && isRealSupabase) {
+      logTelemetry("STUDENTS", "Supabase active but no linked students found. Check parent_students table.");
     }
 
-    const isRealSupabase = window.supabaseApi && window.supabaseApi.isActive() && rawStudents && rawStudents.length > 0 && rawStudents.some(s => s.role === "student" && (s.user_id || s.id));
+    const isRealData = isRealSupabase && rawStudents && rawStudents.length > 0 && rawStudents.some(s => s.role === "student" && (s.user_id || s.id));
 
-    if ((!rawStudents || rawStudents.length === 0) && (!window.supabaseApi || !window.supabaseApi.isActive())) {
+    if (!rawStudents || rawStudents.length === 0) {
       logTelemetry("STUDENTS", "No students found in database. Using local mock profiles.");
       loadedStudents = window.mockDb.profiles.filter(p => p.role === "student");
-    } else if (!rawStudents || rawStudents.length === 0) {
-      logTelemetry("STUDENTS", "No linked students found for this parent account.");
-      loadedStudents = [];
     } else {
       loadedStudents = rawStudents.map(s => ({
         id: s.user_id || s.id,
@@ -421,7 +445,7 @@ document.addEventListener("DOMContentLoaded", () => {
         avatar_url: s.avatar_url || null,
         active_level: s.active_level || 1,
         total_levels: s.total_levels || 20,
-        _source: isRealSupabase ? "supabase" : "mock"
+        _source: isRealData ? "supabase" : "mock"
       }));
 
       if (isRealSupabase) {
@@ -463,8 +487,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function updateStudentAvatar(std) {
-    const initials = std.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase();
-    studentAvatar.textContent = initials;
+    const name = std.name || "??";
+    const initials = name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase();
+    studentAvatar.textContent = initials || "--";
   }
 
   function renderNoLinkedStudents() {

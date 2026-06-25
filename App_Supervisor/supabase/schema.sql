@@ -16,6 +16,7 @@ CREATE POLICY "Allow individual read of profile"
     ON public.profiles FOR SELECT 
     USING (auth.uid() = id);
 
+
 CREATE POLICY "Allow individual update of profile" 
     ON public.profiles FOR UPDATE 
     USING (auth.uid() = id);

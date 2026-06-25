@@ -169,18 +169,67 @@ const supabaseApi = {
           .select("student_id")
           .eq("parent_id", user.id);
         if (error) throw error;
-        if (!links || links.length === 0) return [];
+        if (!links || links.length === 0) {
+          console.log("[SUPABASE] No parent_students links found for this parent.");
+          return [];
+        }
 
-        const studentIds = links.map(l => l.student_id);
+        const studentIds = links.map(l => l.student_id).filter(id => id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+        console.log("[SUPABASE] Looking for student profiles with valid UUIDs:", studentIds);
+        
+        if (studentIds.length === 0) {
+          console.log("[SUPABASE] No valid student UUIDs found.");
+          return [];
+        }
+        
+        // Get profiles - join with auth.users to get role info
         const { data: students, error: sError } = await supabaseClient
           .from("profiles")
-          .select("id, user_id, full_name, group_name, role, avatar_url, email, active_level, total_levels, deleted_at")
-          .in("user_id", studentIds)
-          .eq("role", "student")
-          .is("deleted_at", null)
+          .select("id, email, full_name, created_at")
+          .in("id", studentIds)
           .order("full_name", { ascending: true });
-        if (sError) throw sError;
-        return students || [];
+        
+        if (sError) {
+          console.warn("[SUPABASE] profiles query error:", sError.message);
+          return [];
+        }
+        
+        if (!students || students.length === 0) {
+          console.log("[SUPABASE] No profile records found for linked student IDs.");
+          return [];
+        }
+        
+        // Try to get role from auth.users metadata
+        const enrichedStudents = await Promise.all(
+          students.map(async (s) => {
+            try {
+              const { data: authData } = await supabaseClient.auth.admin.getUserById(s.id);
+              const role = authData?.user?.user_metadata?.role || "student";
+              return {
+                ...s,
+                user_id: s.id,
+                role: role,
+                group_name: authData?.user?.user_metadata?.group_name || "Sin grupo",
+                avatar_url: authData?.user?.user_metadata?.avatar_url || null,
+                active_level: 1,
+                total_levels: 20
+              };
+            } catch {
+              return {
+                ...s,
+                user_id: s.id,
+                role: "student",
+                group_name: "Sin grupo",
+                avatar_url: null,
+                active_level: 1,
+                total_levels: 20
+              };
+            }
+          })
+        );
+        
+        console.log("[SUPABASE] Found students:", enrichedStudents.length);
+        return enrichedStudents;
       } catch (err) {
         console.warn("[SUPABASE] getMyStudents failed:", err.message);
         return [];
